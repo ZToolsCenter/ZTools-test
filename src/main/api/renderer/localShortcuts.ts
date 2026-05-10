@@ -1,5 +1,5 @@
 import { app, ipcMain, shell } from 'electron'
-import { promises as fs, existsSync } from 'fs'
+import { promises as fs } from 'fs'
 import path from 'path'
 import { pinyin as getPinyin } from 'pinyin-pro'
 import databaseAPI from '../shared/database'
@@ -397,16 +397,28 @@ export class LocalShortcutsAPI {
   private async deleteNotExistShortcut(): Promise<{ success: boolean; error?: string }> {
     try {
       const shortcuts = this.getAllShortcuts()
-      const { existShortcuts, notExistShortcuts } = shortcuts.reduce(
-        (acc, cur) => {
-          existsSync(cur.path) ? acc.existShortcuts.push(cur) : acc.notExistShortcuts.push(cur.id)
-          return acc
-        },
-        {
-          existShortcuts: [] as LocalShortcut[],
-          notExistShortcuts: [] as string[]
-        }
+      const checks = await Promise.all(
+        shortcuts.map(async (cur) => {
+          try {
+            await fs.access(cur.path)
+            return { shortcut: cur, exists: true }
+          } catch {
+            return { shortcut: cur, exists: false }
+          }
+        })
       )
+
+      const existShortcuts: LocalShortcut[] = []
+      const notExistShortcuts: string[] = []
+
+      for (const check of checks) {
+        if (check.exists) {
+          existShortcuts.push(check.shortcut)
+        } else {
+          notExistShortcuts.push(check.shortcut.id)
+        }
+      }
+
       databaseAPI.dbPut(LOCAL_SHORTCUTS_KEY, existShortcuts)
 
       console.log('[LocalShortcut] 删除失效本地启动项成功:', notExistShortcuts.toString())

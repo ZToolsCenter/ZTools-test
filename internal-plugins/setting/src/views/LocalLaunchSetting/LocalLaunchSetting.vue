@@ -260,6 +260,11 @@ async function handleDelete(shortcut: LocalShortcut): Promise<void> {
 //删除失效项目
 async function handleInvalidItemDelete(): Promise<void> {
   if (isDeleting.value) return
+  const confirmed = await confirm({
+    message: '确定要清除所有失效的本地启动项吗？',
+    type: 'warning'
+  })
+  if (!confirmed) return
   isDeleting.value = true
   try {
     const result = await window.ztools.internal.localShortcuts.deleteWhenNotExist()
