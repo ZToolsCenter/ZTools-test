@@ -282,7 +282,25 @@ async function handleDynamicWebSearch(
   if (!engine) {
     return { success: false, error: '未找到搜索引擎配置' }
   }
+  if (engine.type === 'webpage') {
+    return handleOpenWebpage(ctx, engine.url, engine.name)
+  }
   return handleWebSearch(ctx, param, engine.url, engine.name)
+}
+
+async function handleOpenWebpage(
+  ctx: SystemCommandContext,
+  url: string,
+  label: string
+): Promise<any> {
+  console.log(`[SystemCmd] 打开网页 ${label}:`, url)
+  if (!url) {
+    return { success: false, error: '缺少网页地址' }
+  }
+  await shell.openExternal(url)
+  ctx.mainWindow?.webContents.send('app-launched')
+  ctx.mainWindow?.hide()
+  return { success: true }
 }
 
 async function handleScreenshot(ctx: SystemCommandContext): Promise<any> {

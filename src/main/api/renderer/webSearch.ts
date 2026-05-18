@@ -4,6 +4,8 @@ import windowManager from '../../managers/windowManager'
 import databaseAPI from '../shared/database'
 import commandsAPI from './commands'
 
+export type WebSearchEngineType = 'search' | 'webpage'
+
 /**
  * 网页快开搜索引擎数据结构
  */
@@ -13,6 +15,8 @@ export interface WebSearchEngine {
   url: string // URL 模板，{q} 为关键词占位符
   icon: string // favicon (base64 或 URL)
   enabled: boolean // 是否启用
+  type: WebSearchEngineType // search: 模板搜索, webpage: 直接打开网页
+  keyword?: string // 网页类型的匹配关键字
 }
 
 /**
@@ -96,7 +100,7 @@ class WebSearchAPI {
     try {
       const data = databaseAPI.dbGet(this.DB_KEY)
       if (data && Array.isArray(data)) {
-        return data
+        return data.map((engine) => this.normalizeEngine(engine))
       }
       return []
     } catch {
@@ -108,31 +112,25 @@ class WebSearchAPI {
    * 添加搜索引擎
    */
   public async addEngine(engine: WebSearchEngine): Promise<{ success: boolean; error?: string }> {
-    if (!engine.name || !engine.url) {
-      return { success: false, error: '名称和 URL 不能为空' }
+    const validated = this.validateAndNormalizeEngine(engine, false)
+    if (!validated.success) {
+      return { success: false, error: validated.error }
     }
-    if (!engine.url.includes('{q}')) {
-      return { success: false, error: 'URL 必须包含 {q} 占位符' }
-    }
+    const normalizedEngine = validated.engine!
 
     const engines = this.getAllEngines()
 
     // 自动生成 ID
-    if (!engine.id) {
-      engine.id = randomUUID()
+    if (!normalizedEngine.id) {
+      normalizedEngine.id = randomUUID()
     }
 
     // 检查重复 ID
-    if (engines.some((e) => e.id === engine.id)) {
+    if (engines.some((e) => e.id === normalizedEngine.id)) {
       return { success: false, error: '该搜索引擎 ID 已存在' }
     }
 
-    // 默认启用
-    if (engine.enabled === undefined) {
-      engine.enabled = true
-    }
-
-    engines.push(engine)
+    engines.push(normalizedEngine)
     databaseAPI.dbPut(this.DB_KEY, engines)
 
     this.notifyCommandsChanged()
@@ -146,20 +144,19 @@ class WebSearchAPI {
   public async updateEngine(
     engine: WebSearchEngine
   ): Promise<{ success: boolean; error?: string }> {
-    if (!engine.id || !engine.name || !engine.url) {
-      return { success: false, error: '名称和 URL 不能为空' }
+    const validated = this.validateAndNormalizeEngine(engine, true)
+    if (!validated.success) {
+      return { success: false, error: validated.error }
     }
-    if (!engine.url.includes('{q}')) {
-      return { success: false, error: 'URL 必须包含 {q} 占位符' }
-    }
+    const normalizedEngine = validated.engine!
 
     const engines = this.getAllEngines()
-    const index = engines.findIndex((e) => e.id === engine.id)
+    const index = engines.findIndex((e) => e.id === normalizedEngine.id)
     if (index === -1) {
       return { success: false, error: '未找到该搜索引擎' }
     }
 
-    engines[index] = engine
+    engines[index] = normalizedEngine
     databaseAPI.dbPut(this.DB_KEY, engines)
 
     this.notifyCommandsChanged()
@@ -192,18 +189,37 @@ class WebSearchAPI {
     const engines = this.getAllEngines()
     return engines
       .filter((e) => e.enabled)
-      .map((e) => ({
-        code: `web-search-${e.id}`,
-        explain: e.name,
-        icon: e.icon || '',
-        cmds: [
+      .flatMap((e): any[] => {
+        const baseFeature = {
+          code: `web-search-${e.id}`,
+          explain: e.name,
+          icon: e.icon || ''
+        }
+
+        if (e.type === 'webpage') {
+          const keyword = e.keyword?.trim()
+          if (!keyword) return []
+          return [
+            {
+              ...baseFeature,
+              cmds: [keyword]
+            }
+          ]
+        }
+
+        return [
           {
-            type: 'over',
-            label: e.name,
-            minLength: 1
+            ...baseFeature,
+            cmds: [
+              {
+                type: 'over',
+                label: e.name,
+                minLength: 1
+              }
+            ]
           }
         ]
-      }))
+      })
   }
 
   /**
@@ -226,16 +242,22 @@ class WebSearchAPI {
    */
   public async fetchFavicon(url: string): Promise<string> {
     try {
-      const urlObj = new URL(url.replace('{q}', 'test'))
+      const candidateUrl = this.ensureUrlProtocol(url.replace('{q}', 'test').trim())
+      const urlObj = new URL(candidateUrl)
       const origin = urlObj.origin
 
-      // 先尝试请求网页获取 favicon link
-      const html = await this.httpGet(`${origin}/`)
-      const faviconUrl = this.parseFaviconFromHtml(html, origin)
+      // 先尝试请求网页获取 favicon link。部分站点的压缩响应会导致 Electron net
+      // 解码失败，这里只跳过 HTML 解析，仍继续回退到 /favicon.ico。
+      try {
+        const html = await this.httpGet(`${origin}/`)
+        const faviconUrl = this.parseFaviconFromHtml(html, origin)
 
-      if (faviconUrl) {
-        const base64 = await this.downloadAsBase64(faviconUrl)
-        if (base64) return base64
+        if (faviconUrl) {
+          const base64 = await this.downloadAsBase64(faviconUrl)
+          if (base64) return base64
+        }
+      } catch (error) {
+        console.warn('[WebSearch] 获取页面 HTML 失败，回退到 /favicon.ico:', error)
       }
 
       // 回退到 /favicon.ico
@@ -247,6 +269,79 @@ class WebSearchAPI {
       console.error('[WebSearch] fetchFavicon error:', error)
       return ''
     }
+  }
+
+  private normalizeEngine(engine: any): WebSearchEngine {
+    const type: WebSearchEngineType = engine?.type === 'webpage' ? 'webpage' : 'search'
+    return {
+      id: typeof engine?.id === 'string' ? engine.id : '',
+      name: typeof engine?.name === 'string' ? engine.name.trim() : '',
+      url: typeof engine?.url === 'string' ? engine.url.trim() : '',
+      icon: typeof engine?.icon === 'string' ? engine.icon : '',
+      enabled: typeof engine?.enabled === 'boolean' ? engine.enabled : true,
+      type,
+      keyword: typeof engine?.keyword === 'string' ? engine.keyword.trim() : ''
+    }
+  }
+
+  private validateAndNormalizeEngine(
+    engine: WebSearchEngine,
+    requireId: boolean
+  ): { success: boolean; engine?: WebSearchEngine; error?: string } {
+    const normalized = this.normalizeEngine(engine)
+
+    if (requireId && !normalized.id) {
+      return { success: false, error: 'ID 不能为空' }
+    }
+    if (!normalized.name || !normalized.url) {
+      return { success: false, error: '名称和 URL 不能为空' }
+    }
+
+    if (normalized.type === 'webpage') {
+      if (!normalized.keyword) {
+        return { success: false, error: '匹配关键字不能为空' }
+      }
+      if (normalized.url.includes('{q}')) {
+        return { success: false, error: '网页 URL 不能包含 {q} 占位符' }
+      }
+      const urlResult = this.normalizeHttpUrl(normalized.url)
+      if (!urlResult.success) {
+        return { success: false, error: '网页 URL 必须是有效的 http/https 地址' }
+      }
+      normalized.url = urlResult.url!
+      return { success: true, engine: normalized }
+    }
+
+    if (!normalized.url.includes('{q}')) {
+      return { success: false, error: '搜索引擎 URL 必须包含 {q} 占位符' }
+    }
+    normalized.url = this.ensureUrlProtocol(normalized.url)
+    const urlResult = this.normalizeHttpUrl(normalized.url.replace('{q}', 'test'))
+    if (!urlResult.success) {
+      return { success: false, error: '搜索引擎 URL 必须是有效的 http/https 地址' }
+    }
+    normalized.keyword = ''
+    return { success: true, engine: normalized }
+  }
+
+  private normalizeHttpUrl(rawUrl: string): { success: boolean; url?: string } {
+    const candidate = this.ensureUrlProtocol(rawUrl.trim())
+    try {
+      const parsed = new URL(candidate)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { success: false }
+      }
+      return { success: true, url: parsed.toString() }
+    } catch {
+      return { success: false }
+    }
+  }
+
+  private ensureUrlProtocol(url: string): string {
+    if (/^https?:\/\//i.test(url)) {
+      return url
+    }
+    return `https://${url}`
   }
 
   /**
@@ -283,6 +378,20 @@ class WebSearchAPI {
       const request = net.request(url)
       let data = ''
       let resolved = false
+      const fail = (error: Error): void => {
+        clearTimeout(timeout)
+        if (!resolved) {
+          resolved = true
+          reject(error)
+        }
+      }
+      const done = (value: string): void => {
+        clearTimeout(timeout)
+        if (!resolved) {
+          resolved = true
+          resolve(value)
+        }
+      }
 
       const timeout = setTimeout(() => {
         if (!resolved) {
@@ -293,6 +402,8 @@ class WebSearchAPI {
       }, 10000)
 
       request.on('response', (response) => {
+        response.on('error', fail)
+
         // 处理重定向
         if (
           response.statusCode &&
@@ -313,38 +424,18 @@ class WebSearchAPI {
           data += chunk.toString()
           // 只读取前 100KB，足够解析 head 中的 favicon
           if (data.length > 100 * 1024) {
-            clearTimeout(timeout)
-            if (!resolved) {
-              resolved = true
-              request.abort()
-              resolve(data)
-            }
+            request.abort()
+            done(data)
           }
         })
         response.on('end', () => {
-          clearTimeout(timeout)
-          if (!resolved) {
-            resolved = true
-            resolve(data)
-          }
-        })
-        response.on('error', (error) => {
-          clearTimeout(timeout)
-          if (!resolved) {
-            resolved = true
-            reject(error)
-          }
+          done(data)
         })
       })
 
-      request.on('error', (error) => {
-        clearTimeout(timeout)
-        if (!resolved) {
-          resolved = true
-          reject(error)
-        }
-      })
+      request.on('error', fail)
 
+      request.setHeader('Accept-Encoding', 'identity')
       request.end()
     })
   }
@@ -357,6 +448,13 @@ class WebSearchAPI {
       const request = net.request(url)
       const chunks: Buffer[] = []
       let resolved = false
+      const done = (value: string): void => {
+        clearTimeout(timeout)
+        if (!resolved) {
+          resolved = true
+          resolve(value)
+        }
+      }
 
       const timeout = setTimeout(() => {
         if (!resolved) {
@@ -367,6 +465,10 @@ class WebSearchAPI {
       }, 10000)
 
       request.on('response', (response) => {
+        response.on('error', () => {
+          done('')
+        })
+
         // 处理重定向
         if (
           response.statusCode &&
@@ -384,11 +486,7 @@ class WebSearchAPI {
         }
 
         if (response.statusCode !== 200) {
-          clearTimeout(timeout)
-          if (!resolved) {
-            resolved = true
-            resolve('')
-          }
+          done('')
           return
         }
 
@@ -401,35 +499,21 @@ class WebSearchAPI {
           chunks.push(Buffer.from(chunk))
         })
         response.on('end', () => {
-          clearTimeout(timeout)
-          if (!resolved) {
-            resolved = true
-            const buffer = Buffer.concat(chunks)
-            if (buffer.length > 0) {
-              const mimeType = contentType.split(';')[0].trim()
-              resolve(`data:${mimeType};base64,${buffer.toString('base64')}`)
-            } else {
-              resolve('')
-            }
-          }
-        })
-        response.on('error', () => {
-          clearTimeout(timeout)
-          if (!resolved) {
-            resolved = true
-            resolve('')
+          const buffer = Buffer.concat(chunks)
+          if (buffer.length > 0) {
+            const mimeType = contentType.split(';')[0].trim()
+            done(`data:${mimeType};base64,${buffer.toString('base64')}`)
+          } else {
+            done('')
           }
         })
       })
 
       request.on('error', () => {
-        clearTimeout(timeout)
-        if (!resolved) {
-          resolved = true
-          resolve('')
-        }
+        done('')
       })
 
+      request.setHeader('Accept-Encoding', 'identity')
       request.end()
     })
   }

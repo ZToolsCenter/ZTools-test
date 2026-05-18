@@ -57,6 +57,7 @@ function migrateLegacyMacAppIcons(items: any[]): boolean {
 export function runStartupDataMigrations(): void {
   migrateDevPluginNames()
   migrateVariantRefLists()
+  migrateWebSearchEngineTypes()
 
   if (process.platform !== 'darwin') return
 
@@ -80,6 +81,49 @@ export function runStartupDataMigrations(): void {
     } catch (error) {
       console.error(`[StartupMigration] 迁移失败: ${key}`, error)
     }
+  }
+}
+
+/**
+ * 将旧版网页快开配置补齐为带 type 的新格式。
+ *
+ * 旧格式没有 type，等价于搜索引擎；网页类型额外使用 keyword 作为普通命令匹配词。
+ */
+export function migrateWebSearchEngineTypes(): void {
+  try {
+    const data: any[] = databaseAPI.dbGet('web-search-engines') || []
+    if (!Array.isArray(data)) return
+
+    let changed = false
+    const migrated = data.map((item) => {
+      if (!item || typeof item !== 'object') {
+        changed = true
+        return item
+      }
+
+      const next = { ...item }
+      if (next.type !== 'search' && next.type !== 'webpage') {
+        next.type = 'search'
+        changed = true
+      }
+      if (typeof next.enabled !== 'boolean') {
+        next.enabled = true
+        changed = true
+      }
+      if (typeof next.keyword !== 'string') {
+        next.keyword = ''
+        changed = true
+      }
+
+      return next
+    })
+
+    if (changed) {
+      databaseAPI.dbPut('web-search-engines', migrated)
+      console.log('[StartupMigration] 已迁移网页快开配置类型')
+    }
+  } catch (error) {
+    console.error('[StartupMigration] 迁移网页快开配置类型失败:', error)
   }
 }
 

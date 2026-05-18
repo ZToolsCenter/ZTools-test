@@ -16,6 +16,8 @@ interface WebSearchEngine {
   url: string
   icon: string
   enabled: boolean
+  type: 'search' | 'webpage'
+  keyword?: string
 }
 
 // 搜索引擎列表
@@ -89,6 +91,10 @@ async function handleSave(engine: WebSearchEngine): Promise<void> {
     error('请填写名称和 URL')
     return
   }
+  if (engine.type === 'webpage' && !engine.keyword?.trim()) {
+    error('请填写匹配关键字')
+    return
+  }
 
   try {
     const engineData = {
@@ -96,7 +102,9 @@ async function handleSave(engine: WebSearchEngine): Promise<void> {
       name: engine.name,
       url: engine.url,
       icon: engine.icon || '',
-      enabled: engine.enabled !== undefined ? engine.enabled : true
+      enabled: engine.enabled !== undefined ? engine.enabled : true,
+      type: engine.type || 'search',
+      keyword: engine.keyword || ''
     }
 
     if (editingEngine.value) {
@@ -161,7 +169,7 @@ onMounted(() => {
       <div v-show="!showEditor" class="scrollable-content">
         <!-- 顶部添加按钮 -->
         <div class="panel-header">
-          <button class="btn" @click="showAddEditor">添加搜索引擎</button>
+          <button class="btn" @click="showAddEditor">添加网页快开</button>
         </div>
 
         <!-- 搜索引擎列表 -->
@@ -182,9 +190,15 @@ onMounted(() => {
                 <h3 class="engine-name">{{ engine.name }}</h3>
               </div>
               <div class="engine-url">{{ engine.url }}</div>
+              <div v-if="engine.type === 'webpage' && engine.keyword" class="engine-keyword">
+                匹配关键字：{{ engine.keyword }}
+              </div>
             </div>
 
             <div class="engine-actions">
+              <span class="engine-type-badge">{{
+                engine.type === 'webpage' ? '网页' : '搜索引擎'
+              }}</span>
               <label class="toggle toggle-sm">
                 <input
                   type="checkbox"
@@ -246,7 +260,7 @@ onMounted(() => {
           <div v-if="!loading && engines.length === 0" class="empty-state">
             <div class="i-z-search empty-icon font-size-64px"></div>
             <div class="empty-text">暂无搜索引擎</div>
-            <div class="empty-hint">点击"添加搜索引擎"来配置你的第一个网页快开</div>
+            <div class="empty-hint">点击"添加网页快开"来配置你的第一个网页快开</div>
           </div>
         </div>
       </div>
@@ -387,6 +401,8 @@ onMounted(() => {
 .toggle-sm {
   transform: scale(0.8);
   transform-origin: center;
+  display: flex;
+  align-items: center;
 }
 
 .engine-url {
@@ -396,11 +412,38 @@ onMounted(() => {
   line-height: 1.4;
 }
 
+.engine-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--primary-color);
+  background: var(--primary-light-bg);
+}
+
+.engine-keyword {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .engine-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-left: 16px;
   flex-shrink: 0;
+}
+
+.engine-actions .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 图标按钮颜色样式 */

@@ -404,9 +404,37 @@ declare global {
 
         // 网页快开
         webSearch: {
-          getAll: () => Promise<{ success: boolean; data?: any[]; error?: string }>
-          add: (engine: any) => Promise<{ success: boolean; error?: string }>
-          update: (engine: any) => Promise<{ success: boolean; error?: string }>
+          getAll: () => Promise<{
+            success: boolean
+            data?: Array<{
+              id: string
+              name: string
+              url: string
+              icon: string
+              enabled: boolean
+              type: 'search' | 'webpage'
+              keyword?: string
+            }>
+            error?: string
+          }>
+          add: (engine: {
+            id: string
+            name: string
+            url: string
+            icon: string
+            enabled: boolean
+            type: 'search' | 'webpage'
+            keyword?: string
+          }) => Promise<{ success: boolean; error?: string }>
+          update: (engine: {
+            id: string
+            name: string
+            url: string
+            icon: string
+            enabled: boolean
+            type: 'search' | 'webpage'
+            keyword?: string
+          }) => Promise<{ success: boolean; error?: string }>
           delete: (id: string) => Promise<{ success: boolean; error?: string }>
           fetchFavicon: (
             url: string
