@@ -1,8 +1,9 @@
 import { shell } from 'electron'
+import type { Dirent } from 'fs'
 import fsPromises from 'fs/promises'
 import path from 'path'
 import { extractAcronym } from '../../utils/common'
-import { getWindowsScanPaths } from '../../utils/systemPaths'
+import { getWindowsRootScanPaths, getWindowsScanPaths } from '../../utils/systemPaths'
 import { MuiResolver } from '../native/index'
 import { Command } from './types'
 
@@ -202,7 +203,105 @@ export async function parseUrlFile(filePath: string): Promise<UrlFileInfo | null
   }
 }
 
-// 递归扫描目录中的快捷方式
+/**
+ * 处理单个快捷方式 entry（.url / .lnk）：解析、过滤、入列。
+ * 递归与扁平扫描共用，仅处理文件 entry；目录的下钻 / 跳过由调用方决定。
+ */
+async function processShortcutEntry(
+  dirPath: string,
+  entry: Dirent,
+  apps: Command[],
+  displayNameMap: Map<string, string>
+): Promise<void> {
+  const fullPath = path.join(dirPath, entry.name)
+  const ext = path.extname(entry.name).toLowerCase()
+
+  // 处理 .url 快捷方式（应用协议链接，如 steam://）
+  if (ext === '.url') {
+    const urlInfo = await parseUrlFile(fullPath)
+    if (!urlInfo) return
+
+    // 优先使用本地化显示名称，降级为磁盘文件名
+    const appName = displayNameMap.get(fullPath.toLowerCase()) || path.basename(entry.name, '.url')
+
+    // 过滤检查
+    if (SKIP_NAME_PATTERN.test(appName)) return
+
+    // 图标：优先使用 .url 文件中的 IconFile，否则使用 .url 文件本身
+    const iconPath = urlInfo.iconFile || fullPath
+    const icon = getIconUrl(iconPath)
+
+    apps.push({
+      name: appName,
+      path: urlInfo.url, // 使用协议链接作为启动路径
+      icon,
+      acronym: extractAcronym(appName)
+    })
+    return
+  }
+
+  // 处理 .lnk 快捷方式
+  if (ext !== '.lnk') return
+
+  // 优先使用本地化显示名称，降级为磁盘文件名
+  // 解决 Windows 系统快捷方式文件名为英文（如 File Explorer.lnk）但显示名为中文的问题
+  const appName = displayNameMap.get(fullPath.toLowerCase()) || path.basename(entry.name, '.lnk')
+
+  // 尝试解析快捷方式目标（必须先解析才能获取真实路径）
+  let shortcutDetails: Electron.ShortcutDetails | null = null
+  try {
+    shortcutDetails = shell.readShortcutLink(fullPath)
+  } catch {
+    // 解析失败，使用快捷方式本身
+  }
+
+  // 获取目标路径和应用路径
+  const targetPath = shortcutDetails?.target?.trim() || ''
+
+  // 如果 .lnk 指向 .url 文件，解析 .url 内容判断是否为应用协议
+  if (targetPath.toLowerCase().endsWith('.url')) {
+    const urlInfo = await parseUrlFile(targetPath)
+    if (!urlInfo) return // http/https 或解析失败，跳过
+
+    if (SKIP_NAME_PATTERN.test(appName)) return
+
+    const iconPath = urlInfo.iconFile || fullPath
+    const icon = getIconUrl(iconPath)
+
+    apps.push({
+      name: appName,
+      path: urlInfo.url,
+      icon,
+      acronym: extractAcronym(appName)
+    })
+    return
+  }
+
+  // 过滤检查：仅按名称过滤（不按目标类型/路径过滤）
+  if (shouldSkipShortcut(appName)) {
+    return
+  }
+
+  // 始终使用 .lnk 快捷方式路径作为启动路径
+  // Windows Shell API (shell.openPath) 能正确处理 .lnk 文件的启动（包括参数、工作目录等）
+  // 图标使用 .lnk 路径即可，SHGetFileInfoW 能正确解析快捷方式的图标（包括自定义图标）
+  const icon = getIconUrl(fullPath)
+
+  // 创建应用对象
+  // _dedupeTarget 用于去重：同名且指向同一目标的快捷方式只保留一个
+  // （用户开始菜单和系统开始菜单可能有同名同目标的 .lnk，路径不同但应合并）
+  const app: Command & { _dedupeTarget?: string } = {
+    name: appName,
+    path: fullPath,
+    icon,
+    acronym: extractAcronym(appName),
+    _dedupeTarget: targetPath || undefined
+  }
+
+  apps.push(app)
+}
+
+// 递归扫描目录中的快捷方式（Programs 子树 / 桌面）
 async function scanDirectory(
   dirPath: string,
   apps: Command[],
@@ -212,108 +311,50 @@ async function scanDirectory(
     const entries = await fsPromises.readdir(dirPath, { withFileTypes: true })
 
     for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name)
-
-      // 处理子目录
+      // 处理子目录：跳过开发相关文件夹，其余递归下钻
       if (entry.isDirectory()) {
         // 跳过 SDK、示例、文档等开发相关文件夹
         if (SKIP_FOLDERS.includes(entry.name.toLowerCase())) {
           continue
         }
         // 递归扫描子目录
-        await scanDirectory(fullPath, apps, displayNameMap)
+        await scanDirectory(path.join(dirPath, entry.name), apps, displayNameMap)
         continue
       }
 
-      if (!entry.isFile()) continue
-
-      const ext = path.extname(entry.name).toLowerCase()
-
-      // 处理 .url 快捷方式（应用协议链接，如 steam://）
-      if (ext === '.url') {
-        const urlInfo = await parseUrlFile(fullPath)
-        if (!urlInfo) continue
-
-        // 优先使用本地化显示名称，降级为磁盘文件名
-        const appName =
-          displayNameMap.get(fullPath.toLowerCase()) || path.basename(entry.name, '.url')
-
-        // 过滤检查
-        if (SKIP_NAME_PATTERN.test(appName)) continue
-
-        // 图标：优先使用 .url 文件中的 IconFile，否则使用 .url 文件本身
-        const iconPath = urlInfo.iconFile || fullPath
-        const icon = getIconUrl(iconPath)
-
-        apps.push({
-          name: appName,
-          path: urlInfo.url, // 使用协议链接作为启动路径
-          icon,
-          acronym: extractAcronym(appName)
-        })
-        continue
-      }
-
-      // 处理 .lnk 快捷方式
-      if (ext !== '.lnk') continue
-
-      // 优先使用本地化显示名称，降级为磁盘文件名
-      // 解决 Windows 系统快捷方式文件名为英文（如 File Explorer.lnk）但显示名为中文的问题
-      const appName =
-        displayNameMap.get(fullPath.toLowerCase()) || path.basename(entry.name, '.lnk')
-
-      // 尝试解析快捷方式目标（必须先解析才能获取真实路径）
-      let shortcutDetails: Electron.ShortcutDetails | null = null
       try {
-        shortcutDetails = shell.readShortcutLink(fullPath)
-      } catch {
-        // 解析失败，使用快捷方式本身
+        await processShortcutEntry(dirPath, entry, apps, displayNameMap)
+      } catch (error) {
+        // 单个文件失败不影响目录内其余扫描
+        console.error(`[Scanner] 处理快捷方式失败 ${path.join(dirPath, entry.name)}:`, error)
       }
+    }
+  } catch (error) {
+    console.error(`[Scanner] 扫描目录失败 ${dirPath}:`, error)
+  }
+}
 
-      // 获取目标路径和应用路径
-      const targetPath = shortcutDetails?.target?.trim() || ''
+/**
+ * 扁平扫描（Start Menu 根专用）
+ * 仅处理本层文件，不下钻 Programs 子目录，避免重复索引
+ */
+export async function scanDirectoryFlat(
+  dirPath: string,
+  apps: Command[],
+  displayNameMap: Map<string, string>
+): Promise<void> {
+  try {
+    const entries = await fsPromises.readdir(dirPath, { withFileTypes: true })
 
-      // 如果 .lnk 指向 .url 文件，解析 .url 内容判断是否为应用协议
-      if (targetPath.toLowerCase().endsWith('.url')) {
-        const urlInfo = await parseUrlFile(targetPath)
-        if (!urlInfo) continue // http/https 或解析失败，跳过
+    for (const entry of entries) {
+      if (entry.isDirectory()) continue
 
-        if (SKIP_NAME_PATTERN.test(appName)) continue
-
-        const iconPath = urlInfo.iconFile || fullPath
-        const icon = getIconUrl(iconPath)
-
-        apps.push({
-          name: appName,
-          path: urlInfo.url,
-          icon,
-          acronym: extractAcronym(appName)
-        })
-        continue
+      try {
+        await processShortcutEntry(dirPath, entry, apps, displayNameMap)
+      } catch (error) {
+        // 单个文件失败不影响目录内其余扫描
+        console.error(`[Scanner] 处理快捷方式失败 ${path.join(dirPath, entry.name)}:`, error)
       }
-
-      // 过滤检查：仅按名称过滤（不按目标类型/路径过滤）
-      if (shouldSkipShortcut(appName)) {
-        continue
-      }
-
-      // 始终使用 .lnk 快捷方式路径作为启动路径
-      // Windows Shell API (shell.openPath) 能正确处理 .lnk 文件的启动（包括参数、工作目录等）
-      // 图标使用 .lnk 路径即可，SHGetFileInfoW 能正确解析快捷方式的图标（包括自定义图标）
-      const icon = getIconUrl(fullPath)
-
-      // 创建应用对象
-      // _dedupeTarget 用于去重：同名且指向同一目标的快捷方式只保留一个
-      // （用户开始菜单和系统开始菜单可能有同名同目标的 .lnk，路径不同但应合并）
-      const app: Command & { _dedupeTarget?: string } = {
-        name: appName,
-        path: fullPath,
-        icon,
-        acronym: extractAcronym(appName),
-        _dedupeTarget: targetPath || undefined
-      }
-
-      apps.push(app)
     }
   } catch (error) {
     console.error(`[Scanner] 扫描目录失败 ${dirPath}:`, error)
@@ -348,13 +389,19 @@ export async function scanApplications(): Promise<Command[]> {
 
     // 获取 Windows 扫描路径（开始菜单 + 桌面）
     const scanPaths = getWindowsScanPaths()
+    // 获取 Start Menu 根路径
+    const rootScanPaths = getWindowsRootScanPaths()
 
     // 获取本地化显示名称（解决 Windows 系统快捷方式文件名为英文的问题）
     const displayNameMap = await getLocalizedDisplayNames(scanPaths)
 
-    // 扫描所有目录
+    // 递归扫描 Programs + 桌面
     for (const menuPath of scanPaths) {
       await scanDirectory(menuPath, apps, displayNameMap)
+    }
+    // 扁平扫描 Start Menu 根
+    for (const rootPath of rootScanPaths) {
+      await scanDirectoryFlat(rootPath, apps, displayNameMap)
     }
 
     const deduplicatedApps = deduplicateCommands(apps)
