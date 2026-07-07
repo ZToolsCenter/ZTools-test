@@ -794,6 +794,62 @@ describe('同步系统集成测试（真实 LMDB）', () => {
       db.close()
     })
 
+    it('远端附件只有 stub metadata 且缺少 body 时会触发下载', async () => {
+      const db = makeTempDb()
+      const client = new SyncClient(db)
+      const digest = 'md5-abc123'
+      const docId = 'PLUGIN/remote-attachment-missing-body'
+      const calls: Array<{ docId: string; digest?: string }> = []
+
+      db.applyRemoteChange({
+        docId,
+        rev: '2-remote',
+        parentRev: null,
+        deleted: false,
+        timestamp: Date.now(),
+        doc: {
+          _id: docId,
+          _rev: '2-remote',
+          _attachments: {
+            default: {
+              stub: true,
+              digest,
+              content_type: 'text/plain',
+              length: 12,
+              revpos: 2
+            }
+          }
+        }
+      })
+
+      expect(db.getAttachmentType(docId)?.digest).toBe(digest)
+      expect(db.getAttachment(docId)).toBeNull()
+      ;(client as any).retryScheduler.retryNow = () => {}
+      ;(client as any).retryScheduler.emitStatus = () => {}
+      ;(client as any).downloadAttachmentDirect = async (
+        nextDocId: string,
+        nextDigest?: string
+      ) => {
+        calls.push({ docId: nextDocId, digest: nextDigest })
+      }
+      ;(client as any).downloadMissingDocumentAttachments([
+        {
+          seq: 1,
+          docId,
+          rev: '2-remote',
+          deleted: false,
+          timestamp: Date.now(),
+          doc: db.get(docId)
+        }
+      ])
+
+      await waitUntil(() => calls.length > 0)
+      expect(calls[0]).toEqual({ docId, digest })
+
+      client.stop()
+      db.close()
+    })
+
     it('removeAttachment 生成普通文档 revision 并移除 _attachments.default', () => {
       const db = makeTempDb()
 

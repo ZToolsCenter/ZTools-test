@@ -925,6 +925,10 @@ export class SyncClient extends EventEmitter {
     }
     if (task.type === 'download_blob') {
       const payload = task.payload as DownloadBlobTaskPayload
+      if (this.hasLocalAttachmentBlob(payload.docId, payload.digest)) {
+        this.taskStore.remove(task.id)
+        return
+      }
       await this.downloadAttachmentDirect(payload.docId, payload.digest)
       this.taskStore.remove(task.id)
       return
@@ -1031,6 +1035,7 @@ export class SyncClient extends EventEmitter {
   ): Promise<void> {
     const digest = digestOrMd5 ? this.normalizeDigest(digestOrMd5) : ''
     if (!digest) return
+    if (this.hasLocalAttachmentBlob(docId, digest)) return
     this.taskStore.upsert({
       id: this.downloadTaskId(docId, digest),
       type: 'download_blob',
@@ -1064,11 +1069,25 @@ export class SyncClient extends EventEmitter {
       }
       const contentType = resp.headers.get('content-type') || 'application/octet-stream'
       const buffer = Buffer.from(await resp.arrayBuffer())
-      this.db.putAttachmentFromRemote(docId, buffer, contentType)
+      const result = this.db.putAttachmentFromRemote(docId, buffer, contentType)
+      if (result?.ok === false) {
+        throw new Error(result.message || `Attachment store failed: ${docId}`)
+      }
       console.log(`[SyncClient] 附件下载: ${docId}${digest ? ` ${digest}` : ''}`)
     } catch (err) {
       console.error('[SyncClient] 附件下载失败:', docId, err)
+      throw err
     }
+  }
+
+  private hasLocalAttachmentBlob(docId: string, digestOrMd5: string): boolean {
+    const digest = this.normalizeDigest(digestOrMd5)
+    if (!digest) return false
+    const localData = this.db.getAttachment(docId)
+    if (!localData) return false
+    const localMeta = this.db.getAttachmentType(docId)
+    if (!localMeta) return false
+    return this.normalizeDigest(localMeta.digest || localMeta.md5 || '') === digest
   }
 
   private downloadMissingDocumentAttachments(changes: FullChangeEntry[]): void {
@@ -1079,8 +1098,7 @@ export class SyncClient extends EventEmitter {
       for (const meta of Object.values(attachments) as any[]) {
         const digest = this.normalizeDigest(meta?.digest || '')
         if (!digest) continue
-        const localMeta = this.db.getAttachmentType(change.docId)
-        if (!localMeta || this.normalizeDigest(localMeta.digest || localMeta.md5) !== digest) {
+        if (!this.hasLocalAttachmentBlob(change.docId, digest)) {
           this.downloadAttachment(change.docId, digest, meta).catch((err) => {
             console.error('[SyncClient] 文档附件下载失败:', change.docId, err)
           })
