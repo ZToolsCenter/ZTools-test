@@ -37,7 +37,6 @@ const {
   getMenuItems,
   handleMenuSelect,
   handleMatchMenuSelect,
-  openMatchCommandDetail,
   closeMatchCommandDetail,
   selectedMatchCommand,
   selectedMatchCommandDisabled,

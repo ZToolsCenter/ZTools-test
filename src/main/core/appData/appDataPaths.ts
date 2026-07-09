@@ -1,6 +1,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { app } from 'electron'
 
 export interface AppDataPathOptions {
   homeDir?: string
@@ -119,9 +120,7 @@ function getDefaultLegacyUserDataPath(options: AppDataPathOptions): string {
     return process.env.ZTOOLS_LEGACY_USER_DATA_PATH
   }
   try {
-    // Electron is available in the app runtime; tests can pass legacyUserDataPath.
-    const electron = require('electron') as { app?: { getPath?: (name: string) => string } }
-    const userData = electron.app?.getPath?.('userData')
+    const userData = app?.getPath?.('userData')
     if (userData) return userData
   } catch {
     // fall back to the production macOS path below

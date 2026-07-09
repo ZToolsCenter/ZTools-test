@@ -1,7 +1,8 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import WebSocket from 'ws'
 import { SyncClient, SYNC_PREFIXES } from '../../core/sync/syncClient'
 import { SyncConfig } from '../../core/sync/types'
 import lmdbInstance, { storageManager } from '../../core/lmdb/lmdbInstance'
@@ -101,7 +102,7 @@ export class SyncAPI {
       if (!doc?.data) return null
 
       return doc.data as SyncConfig
-    } catch (_) {
+    } catch {
       return null
     }
   }
@@ -204,7 +205,6 @@ export class SyncAPI {
     // 测试 WebSocket 连接
     ipcMain.handle('sync:test-connection', async (_event, config: SyncConfig) => {
       try {
-        const WebSocket = require('ws')
         return new Promise((resolve) => {
           const ws = new WebSocket(config.serverUrl)
           const timer = setTimeout(() => {
@@ -633,6 +633,90 @@ export class SyncAPI {
         return { success: false, error: error.message }
       }
     })
+
+    // ==================== GitHub OAuth 登录（轮询方式）====================
+
+    // GitHub 登录：初始化会话
+    ipcMain.handle('sync:github-init-session', async (_event, params: { serverUrl: string }) => {
+      try {
+        const httpUrl = this.syncServerUrlToHttp(params.serverUrl)
+        const response = await fetch(`${httpUrl}/api/auth/github/init-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+
+        const data = await response.json()
+        if (!response.ok || !data.success) {
+          return { success: false, error: data.error || '初始化会话失败' }
+        }
+
+        return { success: true, sessionId: data.sessionId, expiresIn: data.expiresIn }
+      } catch (error: any) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    // GitHub 登录：打开浏览器
+    ipcMain.handle(
+      'sync:github-open-browser',
+      async (_event, params: { serverUrl: string; sessionId: string }) => {
+        try {
+          const httpUrl = this.syncServerUrlToHttp(params.serverUrl)
+
+          await shell.openExternal(`${httpUrl}/api/auth/github/start?session=${params.sessionId}`)
+
+          return { success: true }
+        } catch (error: any) {
+          return { success: false, error: error.message }
+        }
+      }
+    )
+
+    // GitHub 登录：轮询状态
+    ipcMain.handle(
+      'sync:github-poll-status',
+      async (_event, params: { serverUrl: string; sessionId: string }) => {
+        try {
+          const httpUrl = this.syncServerUrlToHttp(params.serverUrl)
+          const response = await fetch(`${httpUrl}/api/auth/session/${params.sessionId}/status`)
+
+          const data = await response.json()
+          return data
+        } catch (error: any) {
+          return { success: false, error: error.message }
+        }
+      }
+    )
+
+    // 更新用户昵称
+    ipcMain.handle(
+      'sync:update-nickname',
+      async (
+        _event,
+        params: { serverUrl: string; token: string; nickname: string }
+      ): Promise<{ success: boolean; error?: string; profile?: any }> => {
+        try {
+          const response = await fetch(
+            `${this.syncServerUrlToHttp(params.serverUrl)}/api/account/nickname`,
+            {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${params.token}`
+              },
+              body: JSON.stringify({ nickname: params.nickname })
+            }
+          )
+          const data = await response.json()
+          if (!response.ok) {
+            return { success: false, error: data.error || '更新昵称失败' }
+          }
+          return { success: true, profile: data }
+        } catch (error: any) {
+          return { success: false, error: error.message }
+        }
+      }
+    )
   }
 
   private syncServerUrlToHttp(serverUrl: string): string {

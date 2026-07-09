@@ -427,7 +427,6 @@ const {
   // 匹配指令详情
   selectedMatchCommand,
   selectedMatchCommandDisabled,
-  openMatchCommandDetail,
   closeMatchCommandDetail,
   toggleSelectedMatchCommandDisabled
 } = usePluginCommandActions({

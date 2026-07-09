@@ -141,11 +141,13 @@ declare global {
               id: number
               pluginName: string
               uid: string
+              nickname: string
               avatarUrl?: string
               parentId?: number | null
               parent?: {
                 id: number
                 uid: string
+                nickname: string
                 avatarUrl?: string
                 content: string
                 deleted: boolean
@@ -602,6 +604,7 @@ declare global {
           success: boolean
           profile?: {
             uid: string
+            nickname?: string
             avatarUrl?: string
           }
           error?: string
@@ -610,8 +613,41 @@ declare global {
           success: boolean
           profile?: {
             uid: string
+            nickname?: string
             avatarUrl?: string
           }
+          error?: string
+        }>
+        syncUpdateNickname: (params: {
+          serverUrl: string
+          token: string
+          nickname: string
+        }) => Promise<{
+          success: boolean
+          profile?: {
+            uid: string
+            nickname?: string
+            avatarUrl?: string
+          }
+          error?: string
+        }>
+        syncGithubInitSession: (params: { serverUrl: string }) => Promise<{
+          success: boolean
+          sessionId?: string
+          expiresIn?: number
+          error?: string
+        }>
+        syncGithubOpenBrowser: (params: { serverUrl: string; sessionId: string }) => Promise<{
+          success: boolean
+          error?: string
+        }>
+        syncGithubPollStatus: (params: { serverUrl: string; sessionId: string }) => Promise<{
+          success: boolean
+          status?: 'pending' | 'success'
+          token?: string
+          refreshToken?: string
+          username?: string
+          isNew?: boolean
           error?: string
         }>
         syncRetryNow: () => Promise<{

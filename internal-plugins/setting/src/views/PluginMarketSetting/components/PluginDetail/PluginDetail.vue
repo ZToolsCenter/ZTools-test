@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import commentLikeIcon from '@/assets/icons/comment-like.svg'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AccountLoginDialog, PluginDetail as SharedPluginDetail, useToast } from '@/components'
-import {
-  ACCOUNT_CHANGED_EVENT,
-  loginZToolsAccount,
-  promptDefaultDataImportAfterLogin
-} from '@/composables/useZToolsAccount'
+import { PluginDetail as SharedPluginDetail, useToast } from '@/components'
+import { ACCOUNT_CHANGED_EVENT } from '@/composables/useZToolsAccount'
 import type { PluginUninstallOptions, TabId } from '@/components'
 import type { PluginDownloadState } from '../types'
 
@@ -33,6 +29,7 @@ type CommentItem = {
   id: number
   pluginName: string
   uid: string
+  nickname: string
   avatarUrl?: string
   parentId?: number | null
   parent?: CommentParent | null
@@ -46,6 +43,7 @@ type CommentItem = {
 type CommentParent = {
   id: number
   uid: string
+  nickname: string
   avatarUrl?: string
   content: string
   deleted: boolean
@@ -67,10 +65,7 @@ const submittingComment = ref(false)
 const likingId = ref<number | null>(null)
 const deletingId = ref<number | null>(null)
 const highlightedCommentId = ref<number | null>(null)
-const loginOpen = ref(false)
-const loginLoading = ref(false)
 const currentUsername = ref('')
-const loginUsername = ref('')
 
 onMounted(() => {
   void loadLoginDefaults()
@@ -129,14 +124,11 @@ async function loadLoginDefaults(): Promise<void> {
   try {
     const result = await window.ztools.internal.syncGetConfig()
     if (result.success && result.config) {
-      loginUsername.value = result.config.username || ''
       currentUsername.value = result.config.username || ''
     } else {
-      loginUsername.value = ''
       currentUsername.value = ''
     }
   } catch {
-    loginUsername.value = ''
     currentUsername.value = ''
   }
 }
@@ -167,7 +159,7 @@ async function submitComment(): Promise<void> {
       return
     }
     if (result.authRequired) {
-      openLogin()
+      promptLogin()
       return
     }
     error(result.error || '评论发布失败')
@@ -188,7 +180,7 @@ async function toggleLike(item: CommentItem): Promise<void> {
       return
     }
     if (result.authRequired) {
-      openLogin()
+      promptLogin()
       return
     }
     error(result.error || '操作失败')
@@ -218,7 +210,7 @@ async function deleteComment(item: CommentItem): Promise<void> {
       return
     }
     if (result.authRequired) {
-      openLogin()
+      promptLogin()
       return
     }
     error(result.error || '删除失败')
@@ -242,37 +234,8 @@ function cancelReply(): void {
   replyTo.value = null
 }
 
-function openLogin(): void {
-  void loadLoginDefaults()
-  loginOpen.value = true
-  warning('请先登录后再操作')
-}
-
-async function submitLogin(
-  payload: { username: string; password: string; captchaVerifyParam?: string },
-  controls?: { resolve: () => void; reject: (error: unknown) => void }
-): Promise<void> {
-  if (!payload.username || !payload.password) {
-    warning('请填写账号和密码')
-    controls?.reject(new Error('请填写账号和密码'))
-    return
-  }
-  loginLoading.value = true
-  try {
-    await loginZToolsAccount(payload)
-    controls?.resolve()
-    loginOpen.value = false
-    loginUsername.value = payload.username
-    currentUsername.value = payload.username
-    success('登录成功')
-    await promptDefaultDataImportAfterLogin({ confirm, success, error })
-    await loadComments()
-  } catch (err: any) {
-    controls?.reject(err)
-    error(err?.message || '登录失败')
-  } finally {
-    loginLoading.value = false
-  }
+function promptLogin(): void {
+  warning('请先在左下角注册/登录后再操作')
 }
 
 function nextCommentsPage(): void {
@@ -300,7 +263,7 @@ function formatTime(value: number): string {
 
 function authorOf(parentId?: number | null): string {
   if (!parentId) return ''
-  return comments.value.find((item) => item.id === parentId)?.uid || ''
+  return comments.value.find((item) => item.id === parentId)?.nickname || ''
 }
 
 function isOwnComment(item: CommentItem): boolean {
@@ -315,6 +278,7 @@ function parentOf(item: CommentItem): CommentParent | null {
   return {
     id: localParent.id,
     uid: localParent.uid,
+    nickname: localParent.nickname,
     avatarUrl: localParent.avatarUrl,
     content: localParent.content,
     deleted: false,
@@ -408,12 +372,12 @@ function focusParentComment(parentId?: number | null): void {
             :class="{ highlighted: highlightedCommentId === item.id }"
           >
             <img v-if="item.avatarUrl" class="comment-avatar" :src="item.avatarUrl" alt="" />
-            <div v-else class="comment-avatar">{{ item.uid.slice(0, 1).toUpperCase() }}</div>
+            <div v-else class="comment-avatar">{{ item.nickname.slice(0, 1).toUpperCase() }}</div>
             <div class="comment-body">
               <div class="comment-meta">
-                <strong>{{ item.uid }}</strong>
+                <strong>{{ item.nickname }}</strong>
                 <span v-if="item.parentId"
-                  >回复 @{{ parentOf(item)?.uid || authorOf(item.parentId) || '用户' }}</span
+                  >回复 @{{ parentOf(item)?.nickname || authorOf(item.parentId) || '用户' }}</span
                 >
                 <time>{{ formatTime(item.createdAt) }}</time>
               </div>
@@ -431,13 +395,15 @@ function focusParentComment(parentId?: number | null): void {
                 />
                 <div v-else class="reference-avatar">
                   {{
-                    (parentOf(item)?.uid || authorOf(item.parentId) || '用户')
+                    (parentOf(item)?.nickname || authorOf(item.parentId) || '用户')
                       .slice(0, 1)
                       .toUpperCase()
                   }}
                 </div>
                 <div class="reference-body">
-                  <strong>@{{ parentOf(item)?.uid || authorOf(item.parentId) || '用户' }}</strong>
+                  <strong
+                    >@{{ parentOf(item)?.nickname || authorOf(item.parentId) || '用户' }}</strong
+                  >
                   <p>{{ displayCommentText(parentOf(item)?.content) }}</p>
                 </div>
               </button>
@@ -487,13 +453,6 @@ function focusParentComment(parentId?: number | null): void {
             下一页
           </button>
         </div>
-
-        <AccountLoginDialog
-          v-model:visible="loginOpen"
-          :username="loginUsername"
-          :loading="loginLoading"
-          @submit="submitLogin"
-        />
       </div>
     </template>
   </SharedPluginDetail>

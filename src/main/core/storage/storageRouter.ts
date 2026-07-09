@@ -22,8 +22,8 @@ export class StorageRouter extends EventEmitter {
   }
 
   private accountDb: LmdbDatabase | null = null
-  private readonly forwardChange = (payload: unknown) => this.emit('change', payload)
-  private readonly forwardAttachmentAdded = (payload: unknown) =>
+  private readonly forwardChange = (payload: unknown): boolean => this.emit('change', payload)
+  private readonly forwardAttachmentAdded = (payload: unknown): boolean =>
     this.emit('attachment-added', payload)
 
   constructor(private manager: StorageManager) {

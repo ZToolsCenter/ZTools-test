@@ -1,6 +1,7 @@
 import WebSocket from 'ws'
 import { EventEmitter } from 'events'
 import crypto from 'crypto'
+import os from 'os'
 import type LmdbDatabase from '../lmdb/index'
 import {
   SyncConfig,
@@ -272,7 +273,7 @@ export class SyncClient extends EventEmitter {
         type: 'auth',
         token: this.config!.token,
         deviceId: this.config!.deviceId,
-        deviceName: require('os').hostname(),
+        deviceName: os.hostname(),
         protocolVersion: SYNC_PROTOCOL_VERSION
       })
     })
@@ -473,7 +474,7 @@ export class SyncClient extends EventEmitter {
     let offset = 0
     let totalDownloaded = 0
 
-    const processNextBatch = () => {
+    const processNextBatch = (): void => {
       const batch = docChanges.slice(offset, offset + BATCH_SIZE)
       if (batch.length === 0) {
         this.finishPull(totalDownloaded, docChanges, seq, options)

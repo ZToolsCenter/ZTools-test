@@ -120,7 +120,7 @@ export class SyncApi {
   private normalizeRevisionHistory(currentRev: string, raw?: string[]): string[] {
     const history: string[] = []
     const seen = new Set<string>()
-    const add = (rev?: string | null) => {
+    const add = (rev?: string | null): void => {
       const normalized = typeof rev === 'string' ? rev.trim() : ''
       if (!normalized || seen.has(normalized)) return
       seen.add(normalized)

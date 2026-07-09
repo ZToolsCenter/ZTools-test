@@ -19,12 +19,17 @@ const { success, error, warning, confirm } = useToast()
 const menuRoutes = ref<MenuRouterItemType[]>([] as MenuRouterItemType[])
 const loggedIn = ref(false)
 const username = ref('')
+const nickname = ref('')
 const avatar = ref(defaultAvatar)
 const loginVisible = ref(false)
 const profileVisible = ref(false)
 const loggingIn = ref(false)
 const loadingStats = ref(false)
 const loginUsername = ref('')
+const editingNickname = ref(false)
+const nicknameInput = ref('')
+const updatingNickname = ref(false)
+let accountLoadVersion = 0
 const stats = ref<{
   documentCount: number
   attachmentCount: number
@@ -32,7 +37,14 @@ const stats = ref<{
   monthlyTraffic: number
 } | null>(null)
 
-const displayName = computed(() => username.value || 'ZTools 用户')
+interface AccountProfileCache {
+  uid: string
+  nickname?: string
+  avatarUrl?: string
+  updatedAt: number
+}
+
+const displayName = computed(() => nickname.value || username.value || 'ZTools 用户')
 
 // 设置激活菜单
 const setActiveMenu = ({ name }: MenuRouterItemType): void => {
@@ -63,37 +75,102 @@ function handleAccountChanged(): void {
 }
 
 async function loadAccount(): Promise<void> {
+  const version = (accountLoadVersion += 1)
   try {
     const result = await window.ztools.internal.syncGetConfig()
     const config = result.success ? result.config : null
-    loggedIn.value = Boolean(config?.token && config.serverUrl === ONLINE_SYNC_SERVER_URL)
-    username.value = config?.username || ''
-    loginUsername.value = config?.username || ''
-    if (loggedIn.value) {
-      await loadProfile()
-      await loadCloudStats()
+    const uid = config?.username || ''
+    const isLoggedIn = Boolean(config?.token && config.serverUrl === ONLINE_SYNC_SERVER_URL && uid)
+    if (version !== accountLoadVersion) return
+
+    loginUsername.value = uid
+    if (isLoggedIn) {
+      const cachedProfile = await readCachedProfile(uid)
+      if (version !== accountLoadVersion) return
+
+      loggedIn.value = true
+      applyProfile(cachedProfile, uid)
+      void refreshProfile(uid, version)
+      void loadCloudStats()
     } else {
-      avatar.value = defaultAvatar
-      stats.value = null
+      clearAccountState()
     }
   } catch {
-    loggedIn.value = false
-    avatar.value = defaultAvatar
-    stats.value = null
+    if (version === accountLoadVersion) clearAccountState()
   }
 }
 
-async function loadProfile(): Promise<void> {
+function profileCacheKey(uid: string): string {
+  return `account-profile-cache:${uid}`
+}
+
+async function readCachedProfile(uid: string): Promise<AccountProfileCache | null> {
+  if (!uid) return null
   try {
-    const result = await window.ztools.internal.syncGetAccountProfile()
-    if (result.success && result.profile) {
-      username.value = result.profile.uid || username.value
-      avatar.value = result.profile.avatarUrl || defaultAvatar
-    } else {
-      avatar.value = defaultAvatar
+    const cached = await window.ztools.internal.dbGet(profileCacheKey(uid))
+    if (!cached || typeof cached !== 'object') return null
+    return {
+      uid: typeof cached.uid === 'string' ? cached.uid : uid,
+      nickname: typeof cached.nickname === 'string' ? cached.nickname : '',
+      avatarUrl: typeof cached.avatarUrl === 'string' ? cached.avatarUrl : '',
+      updatedAt: Number(cached.updatedAt || 0)
     }
   } catch {
-    avatar.value = defaultAvatar
+    return null
+  }
+}
+
+async function writeCachedProfile(profile: AccountProfileCache): Promise<void> {
+  if (!profile.uid) return
+  try {
+    await window.ztools.internal.dbPut(profileCacheKey(profile.uid), {
+      uid: profile.uid,
+      nickname: profile.nickname || '',
+      avatarUrl: profile.avatarUrl || '',
+      updatedAt: profile.updatedAt || Date.now()
+    })
+  } catch {
+    // 缓存失败不影响账号主流程。
+  }
+}
+
+function applyProfile(
+  profile: AccountProfileCache | null,
+  fallbackUid: string = username.value
+): void {
+  username.value = profile?.uid || fallbackUid
+  nickname.value = profile?.nickname || ''
+  avatar.value = profile?.avatarUrl || defaultAvatar
+}
+
+function clearAccountState(): void {
+  loggedIn.value = false
+  username.value = ''
+  nickname.value = ''
+  avatar.value = defaultAvatar
+  stats.value = null
+}
+
+async function refreshProfile(
+  expectedUid: string,
+  version: number = accountLoadVersion
+): Promise<void> {
+  try {
+    const result = await window.ztools.internal.syncGetAccountProfile()
+    if (version !== accountLoadVersion) return
+    if (result.success && result.profile) {
+      const profile = {
+        uid: result.profile.uid || expectedUid,
+        nickname: result.profile.nickname || '',
+        avatarUrl: result.profile.avatarUrl || '',
+        updatedAt: Date.now()
+      }
+      if (profile.uid !== expectedUid) return
+      applyProfile(profile, expectedUid)
+      await writeCachedProfile(profile)
+    }
+  } catch {
+    // 远端 profile 拉取失败时保留本地缓存展示，避免头像和昵称闪回默认值。
   }
 }
 
@@ -151,6 +228,49 @@ async function submitLogin(
   }
 }
 
+async function handleGithubLoginSuccess(data: {
+  token: string
+  refreshToken: string
+  username: string
+  isNew: boolean
+}): Promise<void> {
+  try {
+    // 保存配置（与账号密码登录相同的逻辑）
+    const configResult = await window.ztools.internal.syncGetConfig()
+    const currentConfig = configResult.success ? configResult.config : null
+
+    await window.ztools.internal.syncSaveConfig({
+      enabled: Boolean(currentConfig?.enabled),
+      serverUrl: ONLINE_SYNC_SERVER_URL,
+      token: data.token,
+      refreshToken: data.refreshToken,
+      syncInterval: currentConfig?.syncInterval || 30,
+      username: data.username
+    })
+
+    // 关闭登录对话框
+    loginVisible.value = false
+    loginUsername.value = data.username
+
+    // 显示成功提示
+    success(`GitHub 登录成功！欢迎${data.isNew ? '注册' : '回来'}，${data.username}`)
+
+    // 触发账号变更事件
+    notifyAccountChanged()
+
+    // 如果是新用户，提示导入本机数据
+    if (data.isNew) {
+      await promptDefaultDataImportAfterLogin({ confirm, success, error })
+    }
+
+    // 加载账号信息
+    await loadAccount()
+  } catch (err: any) {
+    console.error('[GitHub Login] 保存配置失败:', err)
+    error(err?.message || 'GitHub 登录失败')
+  }
+}
+
 async function changeAvatar(): Promise<void> {
   const result = await window.ztools.internal.selectImageFile()
   if (!result.success || !result.path) {
@@ -162,8 +282,14 @@ async function changeAvatar(): Promise<void> {
     error(uploaded.error || '头像上传失败')
     return
   }
-  avatar.value = uploaded.profile.avatarUrl || defaultAvatar
-  username.value = uploaded.profile.uid || username.value
+  const profile = {
+    uid: uploaded.profile.uid || username.value,
+    nickname: uploaded.profile.nickname || nickname.value,
+    avatarUrl: uploaded.profile.avatarUrl || '',
+    updatedAt: Date.now()
+  }
+  applyProfile(profile, username.value)
+  await writeCachedProfile(profile)
   notifyAccountChanged()
   success('账号头像已更新')
 }
@@ -179,14 +305,70 @@ async function logout(): Promise<void> {
       syncInterval: 30,
       username: ''
     })
-    loggedIn.value = false
-    username.value = ''
-    stats.value = null
+    accountLoadVersion += 1
+    clearAccountState()
     profileVisible.value = false
     success('已退出登录')
     notifyAccountChanged()
   } catch (err: any) {
     error(err?.message || '退出登录失败')
+  }
+}
+
+function startEditNickname(): void {
+  nicknameInput.value = nickname.value || username.value
+  editingNickname.value = true
+}
+
+function cancelEditNickname(): void {
+  editingNickname.value = false
+  nicknameInput.value = ''
+}
+
+async function saveNickname(): Promise<void> {
+  const newNickname = nicknameInput.value.trim()
+  if (!newNickname) {
+    warning('昵称不能为空')
+    return
+  }
+
+  if (newNickname === nickname.value) {
+    editingNickname.value = false
+    return
+  }
+
+  try {
+    updatingNickname.value = true
+    const config = await window.ztools.internal.syncGetConfig()
+    if (!config.success || !config.config?.token) {
+      error('未登录，无法修改昵称')
+      return
+    }
+
+    const result = await window.ztools.internal.syncUpdateNickname({
+      serverUrl: config.config.serverUrl,
+      token: config.config.token,
+      nickname: newNickname
+    })
+
+    if (result.success && result.profile) {
+      const profile = {
+        uid: result.profile.uid || username.value,
+        nickname: result.profile.nickname || newNickname,
+        avatarUrl: result.profile.avatarUrl || avatar.value,
+        updatedAt: Date.now()
+      }
+      applyProfile(profile, username.value)
+      await writeCachedProfile(profile)
+      editingNickname.value = false
+      success('昵称已更新')
+    } else {
+      error(result.error || '更新昵称失败')
+    }
+  } catch (err: any) {
+    error(err?.message || '更新昵称失败')
+  } finally {
+    updatingNickname.value = false
   }
 }
 
@@ -231,6 +413,7 @@ function formatBytes(value?: number): string {
       :username="loginUsername"
       :loading="loggingIn"
       @submit="submitLogin"
+      @github-login-success="handleGithubLoginSuccess"
     />
 
     <BaseDialog v-model:visible="profileVisible" title="个人中心" max-width="420px">
@@ -243,6 +426,46 @@ function formatBytes(value?: number): string {
           <div>
             <div class="profile-name">{{ displayName }}</div>
             <div class="profile-subtitle">ZTools 云同步账号</div>
+          </div>
+        </div>
+
+        <div class="profile-info">
+          <div class="info-item">
+            <span class="info-label">用户名</span>
+            <span class="info-value">{{ username }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">昵称</span>
+            <div v-if="!editingNickname" class="info-value-with-action">
+              <span class="info-value">{{ nickname || username }}</span>
+              <button type="button" class="btn-link" @click="startEditNickname">修改</button>
+            </div>
+            <div v-else class="nickname-edit">
+              <input
+                v-model="nicknameInput"
+                type="text"
+                placeholder="输入昵称"
+                maxlength="50"
+                @keyup.enter="saveNickname"
+                @keyup.esc="cancelEditNickname"
+              />
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                :disabled="updatingNickname"
+                @click="saveNickname"
+              >
+                {{ updatingNickname ? '保存中...' : '保存' }}
+              </button>
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                :disabled="updatingNickname"
+                @click="cancelEditNickname"
+              >
+                取消
+              </button>
+            </div>
           </div>
         </div>
 
@@ -434,6 +657,102 @@ function formatBytes(value?: number): string {
   color: var(--text-secondary);
   font-size: 12px;
   margin-top: 4px;
+}
+
+.profile-info {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.info-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.info-value {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.info-value-with-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.nickname-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.nickname-edit input {
+  flex: 1;
+  border: 1px solid var(--divider-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.nickname-edit input:focus {
+  border-color: var(--primary-color);
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-primary.btn-sm {
+  background: var(--primary-color);
+  color: white;
+}
+
+.btn-primary.btn-sm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary.btn-sm {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.btn-secondary.btn-sm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .stats-grid {

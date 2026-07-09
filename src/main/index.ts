@@ -169,18 +169,16 @@ app.whenReady().then(async () => {
         console.log('[Main] 开始处理自动启动插件:', { count: autoStartPlugins.length })
         const plugins = api.dbGet('plugins')
         if (plugins && Array.isArray(plugins)) {
-          for (const pluginRef of autoStartPlugins) {
-            // pluginRef 可能是旧式 { pluginName, source } 或新式 string
-            const effectiveName =
-              typeof pluginRef === 'string' ? pluginRef : (pluginRef?.pluginName ?? '')
-            const plugin = plugins.find((p: any) => p?.name === effectiveName)
+          for (const pluginName of autoStartPlugins) {
+            if (typeof pluginName !== 'string') continue
+            const plugin = plugins.find((p: any) => p?.name === pluginName)
             if (plugin?.path && !disabledPlugins.has(plugin.path)) {
               console.log('[Main] 自动启动插件:', { pluginName: plugin.name })
               pluginManager.preloadPlugin(plugin.path).catch((error) => {
                 console.error('[Main] 自动启动插件失败:', plugin.name, error)
               })
             } else {
-              console.warn('[Main] 自动启动插件已跳过，未找到对应变体:', pluginRef)
+              console.warn('[Main] 自动启动插件已跳过，未找到对应变体:', pluginName)
             }
           }
         }

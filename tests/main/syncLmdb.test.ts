@@ -95,7 +95,7 @@ function waitForSyncClientState(client: SyncClient, state: string, timeout = 500
       client.removeListener('state', onState)
       reject(new Error(`等待 SyncClient 状态 ${state} 超时，当前状态 ${client.getState()}`))
     }, timeout)
-    const onState = (nextState: string) => {
+    const onState = (nextState: string): void => {
       if (nextState !== state) return
       clearTimeout(timer)
       client.removeListener('state', onState)
@@ -378,7 +378,7 @@ describe('同步系统集成测试（真实 LMDB）', () => {
     // cleanup is done in afterAll
   })
 
-  function makeTempDb() {
+  function makeTempDb(): LmdbDatabase {
     const { db, dir } = createTempDb()
     tempDirs.push(dir)
     return db

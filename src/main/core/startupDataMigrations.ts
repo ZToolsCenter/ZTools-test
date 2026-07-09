@@ -58,7 +58,6 @@ function migrateLegacyMacAppIcons(items: any[]): boolean {
  */
 export function runStartupDataMigrations(): void {
   migrateDevPluginNames()
-  migrateVariantRefLists()
   cleanupLegacyWebSearchReferences()
 
   if (process.platform !== 'darwin') return
@@ -137,12 +136,6 @@ function migrateDevPluginNames(): void {
   }
 }
 
-/**
- * 将 autoStartPlugin / outKillPlugin / autoDetachPlugin 中旧式对象格式迁移为新式字符串格式。
- *
- * 旧格式：[{ pluginName: 'demo', source: 'development' }, {pluginName: 'foo', source: 'installed'}, ...]
- * 新格式：['demo__dev', 'foo', ...]
- */
 function isLegacyWebSearchCommand(item: any): boolean {
   return (
     item &&
@@ -235,40 +228,5 @@ export function cleanupLegacyWebSearchReferences(): void {
     console.log('[StartupMigration] 已清理旧网页快开引用: super-panel-pinned')
   } catch (error) {
     console.error('[StartupMigration] 清理旧网页快开引用失败: super-panel-pinned', error)
-  }
-}
-
-function migrateVariantRefLists(): void {
-  const configKeys = ['autoStartPlugin', 'outKillPlugin', 'autoDetachPlugin']
-
-  for (const key of configKeys) {
-    try {
-      const data: any[] = databaseAPI.dbGet(key) || []
-      if (!Array.isArray(data)) continue
-
-      let changed = false
-      const migrated: string[] = data
-        .map((item) => {
-          if (typeof item === 'string') return item
-          if (item && typeof item === 'object' && typeof item.pluginName === 'string') {
-            changed = true
-            const isDev = item.source === 'development' || item.pluginSource === 'development'
-            // 内置插件不加 __dev 后缀
-            if (isDev && !isBundledInternalPlugin(item.pluginName)) {
-              return toDevPluginName(item.pluginName)
-            }
-            return item.pluginName
-          }
-          return null
-        })
-        .filter(Boolean) as string[]
-
-      if (changed || migrated.length !== data.length) {
-        databaseAPI.dbPut(key, migrated)
-        console.log(`[StartupMigration] 已迁移插件配置列表: ${key}`)
-      }
-    } catch (error) {
-      console.error(`[StartupMigration] 迁移插件配置列表失败: ${key}`, error)
-    }
   }
 }

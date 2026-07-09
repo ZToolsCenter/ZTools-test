@@ -43,6 +43,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   perMachine: false
 mac:
+  # macOS ad-hoc signing is handled in build/afterPack.js after all bundle
+  # mutations have completed. For public distribution, replace this flow with
+  # Developer ID signing and notarization.
+  identity: null
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
@@ -50,7 +55,6 @@ mac:
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
-  identity: null # 不签名
   target:
     - dmg
     - zip

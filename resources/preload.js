@@ -1175,6 +1175,16 @@ window.ztools = {
     syncResetLocalSyncState: async () =>
       await electron.ipcRenderer.invoke('sync:reset-local-sync-state'),
     syncForcePushAll: async () => await electron.ipcRenderer.invoke('sync:force-push-all'),
+    // GitHub OAuth 登录（轮询方式）
+    syncGithubInitSession: async (params) =>
+      await electron.ipcRenderer.invoke('sync:github-init-session', params),
+    syncGithubOpenBrowser: async (params) =>
+      await electron.ipcRenderer.invoke('sync:github-open-browser', params),
+    syncGithubPollStatus: async (params) =>
+      await electron.ipcRenderer.invoke('sync:github-poll-status', params),
+    // 更新用户昵称
+    syncUpdateNickname: async (params) =>
+      await electron.ipcRenderer.invoke('sync:update-nickname', params),
     onSyncStatusChanged: (callback) => {
       const handler = (_event, payload) => {
         if (typeof callback === 'function') callback(payload || {})

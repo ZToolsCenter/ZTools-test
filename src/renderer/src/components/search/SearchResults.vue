@@ -53,6 +53,7 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onMounted, onUnmounted, ref, toRaw, watch } from 'vue'
+import { normalizeConfigList } from '@shared/pluginSettings'
 import {
   useMainPushResults,
   type MainPushGroup,
@@ -148,7 +149,7 @@ function parsePluginPayload(raw: string): PluginPayload | null {
     if (!parsed?.pluginName) return null
     return { pluginName: parsed.pluginName, path: parsed.path }
   } catch {
-    return typeof raw === 'string' && raw ? { pluginName: raw } : null
+    return null
   }
 }
 
@@ -592,17 +593,9 @@ async function handleAppContextMenu(
     let autoDetachPlugins: string[] = []
     try {
       const killData = await window.ztools.dbGet('outKillPlugin')
-      if (killData && Array.isArray(killData)) {
-        outKillPlugins = killData
-          .map((item: any) => (typeof item === 'string' ? item : (item?.pluginName ?? '')))
-          .filter(Boolean)
-      }
+      outKillPlugins = normalizeConfigList(killData)
       const detachData = await window.ztools.dbGet('autoDetachPlugin')
-      if (detachData && Array.isArray(detachData)) {
-        autoDetachPlugins = detachData
-          .map((item: any) => (typeof item === 'string' ? item : (item?.pluginName ?? '')))
-          .filter(Boolean)
-      }
+      autoDetachPlugins = normalizeConfigList(detachData)
     } catch (error) {
       console.log('读取配置失败:', error)
     }
@@ -907,11 +900,7 @@ async function handleContextMenuCommand(command: string): Promise<void> {
       let outKillPlugins: string[] = []
       try {
         const data = await window.ztools.dbGet('outKillPlugin')
-        if (data && Array.isArray(data)) {
-          outKillPlugins = data
-            .map((item: any) => (typeof item === 'string' ? item : (item?.pluginName ?? '')))
-            .filter(Boolean)
-        }
+        outKillPlugins = normalizeConfigList(data)
       } catch (error) {
         console.debug('未找outKillPlugin配置', error)
       }
@@ -963,11 +952,7 @@ async function handleContextMenuCommand(command: string): Promise<void> {
       let autoDetachPlugins: string[] = []
       try {
         const data = await window.ztools.dbGet('autoDetachPlugin')
-        if (data && Array.isArray(data)) {
-          autoDetachPlugins = data
-            .map((item: any) => (typeof item === 'string' ? item : (item?.pluginName ?? '')))
-            .filter(Boolean)
-        }
+        autoDetachPlugins = normalizeConfigList(data)
       } catch (error) {
         console.debug('未找到 autoDetachPlugin 配置', error)
       }

@@ -601,13 +601,7 @@ async function openPluginByPayload(payload: string): Promise<void> {
     })
   }
 
-  let pluginName = payload
-  try {
-    const parsed = JSON.parse(payload)
-    pluginName = typeof parsed === 'string' ? parsed : (parsed?.pluginName ?? payload)
-  } catch {
-    // payload is a plain string
-  }
+  const pluginName = payload
 
   const plugin = plugins.value.find((candidate) => candidate.name === pluginName)
   if (plugin) {

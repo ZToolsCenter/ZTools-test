@@ -1,13 +1,9 @@
 export const ENABLED_MAIN_PUSH_PLUGINS_KEY = 'enabled-main-push-plugin'
 
-export type PluginConfigEntry = string | { pluginName?: string | null }
-
-/** 解析配置列表，兼容旧式 { pluginName, source } 和新式 string */
+/** 解析插件配置列表，当前数据契约固定为 string[] */
 export function normalizeConfigList(data: unknown): string[] {
   if (!Array.isArray(data)) return []
-  return data
-    .map((item: PluginConfigEntry) => (typeof item === 'string' ? item : (item?.pluginName ?? '')))
-    .filter((name): name is string => Boolean(name))
+  return data.filter((name): name is string => typeof name === 'string' && Boolean(name))
 }
 
 export function isMainPushPluginEnabled(pluginName: string, enabledPluginNames: string[]): boolean {
