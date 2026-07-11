@@ -46,7 +46,11 @@ export default defineConfig({
           'detached-titlebar': resolve(__dirname, 'src/renderer/detached-titlebar.html'),
           'super-panel': resolve(__dirname, 'src/renderer/super-panel.html'),
           updater: resolve(__dirname, 'src/renderer/updater.html'),
-          'legacy-import': resolve(__dirname, 'src/renderer/legacy-import.html')
+          'legacy-import': resolve(__dirname, 'src/renderer/legacy-import.html'),
+          'accessibility-permission': resolve(
+            __dirname,
+            'src/renderer/accessibility-permission.html'
+          )
         }
       }
     }
