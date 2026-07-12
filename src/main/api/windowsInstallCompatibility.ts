@@ -84,7 +84,7 @@ export async function getWindowsInstallCompatibility(): Promise<WindowsInstallCo
     hasUpdateConfig =
       updateConfig?.provider === 'github' &&
       updateConfig?.owner === 'ZToolsCenter' &&
-      updateConfig?.repo === 'ZTools'
+      updateConfig?.repo === 'ZTools-test'
   } catch {
     hasUpdateConfig = false
   }
