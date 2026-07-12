@@ -64,9 +64,9 @@ export function getProcessedVersion() {
 // 生成下载URL
 export function getDownloadUrl(isDev, version) {
   if (isDev) {
-    return 'https://github.com/ZToolsCenter/ZTools/releases/download/dev'
+    return 'https://github.com/ZToolsCenter/ZTools-test/releases/download/dev'
   } else {
-    return `https://github.com/ZToolsCenter/ZTools/releases/download/v${version}`
+    return `https://github.com/ZToolsCenter/ZTools-test/releases/download/v${version}`
   }
 }
 
