@@ -7,7 +7,7 @@ import {
   OptimizedShortcutManager,
   WindowManager as NativeWindowManager
 } from '../../core/native/index.js'
-import { getCurrentShortcut, updateShortcut } from '../../index.js'
+import { getCurrentShortcut, updateShortcut } from '../../appMain.js'
 
 import doubleTapManager from '../../core/doubleTapManager.js'
 import proxyManager from '../../managers/proxyManager.js'

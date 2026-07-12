@@ -142,14 +142,14 @@ ZTools 支持应用内一键更新，无需手动下载安装包：
 **技术实现**：
 
 - 更新源：GitHub Releases（[ZTools](https://github.com/ZToolsCenter/ZTools/releases)）
-- 更新信息文件：`latest.yml`（包含版本号、更新日志等）
-- 更新包格式：ZIP 压缩包，命名格式为 `update-{platform}-{arch}-{version}.zip`
+- Windows 更新信息：electron-builder 标准 `latest.yml`（包含安装器 SHA-512 和大小）
+- macOS 更新包格式：ZIP 压缩包，命名格式为 `update-{platform}-{arch}-{version}.zip`
   - 示例：`update-darwin-arm64-1.2.8.zip`（macOS Apple Silicon）
-  - 示例：`update-win32-x64-1.2.8.zip`（Windows x64）
 - 更新程序：独立的 `ztools-updater` 可执行文件
   - macOS: `ztools-updater`（位于 Contents/MacOS/）
-  - Windows: `ztools-agent.exe`（位于应用根目录）
-- 更新流程：
+- Windows: 使用 `electron-updater + NSIS` 下载并校验完整安装器，在原安装目录静默更新
+- Windows 旧版迁移：仅替换过 ASAR 的安装会提示前往 GitHub Release 安装一次完整版本
+- macOS 更新流程：
   1. 从 GitHub Releases 下载 `latest.yml` 获取最新版本信息
   2. 下载对应平台的更新包
   3. 解压并启动独立的 updater 程序
@@ -160,7 +160,7 @@ ZTools 支持应用内一键更新，无需手动下载安装包：
 **平台支持**：
 
 - ✅ macOS (Apple Silicon)
-- ✅ Windows (x64)
+- ✅ Windows (x64, electron-updater + NSIS)
 
 ## 🧩 插件开发
 

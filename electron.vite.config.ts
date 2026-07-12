@@ -1,12 +1,29 @@
 import vue from '@vitejs/plugin-vue'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
+
+const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'))
+const targetElectronVersion = packageJson.devDependencies.electron
+
+function getPlatformUpdaterEntry(): string {
+  const targetPlatform = process.env.ZTOOLS_TARGET_PLATFORM || process.platform
+  if (targetPlatform === 'win32')
+    return resolve(__dirname, 'src/main/api/platformUpdater/windows.ts')
+  if (targetPlatform === 'darwin')
+    return resolve(__dirname, 'src/main/api/platformUpdater/macos.ts')
+  return resolve(__dirname, 'src/main/api/platformUpdater/disabled.ts')
+}
 
 export default defineConfig({
   main: {
+    define: {
+      __ZTOOLS_TARGET_ELECTRON_VERSION__: JSON.stringify(targetElectronVersion)
+    },
     resolve: {
       alias: {
-        '@shared': resolve(__dirname, 'src/shared')
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@platform-updater': getPlatformUpdaterEntry()
       }
     },
     plugins: [externalizeDepsPlugin()],

@@ -1,6 +1,9 @@
 appId: top.z-tools
 productName: ZTools
-publish: null
+publish:
+  provider: github
+  owner: ZToolsCenter
+  repo: ZTools-test
 directories:
   buildResources: build
 files:
@@ -41,12 +44,14 @@ win:
         - x64
 nsis:
   artifactName: ${name}-${version}-${os}-${arch}-setup.${ext}
+  include: build/installer.nsh
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  deleteAppDataOnUninstall: false
 mac:
   # macOS ad-hoc signing is handled in build/afterPack.js after all bundle
   # mutations have completed. For public distribution, replace this flow with

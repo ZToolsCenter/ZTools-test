@@ -368,6 +368,9 @@ declare global {
           hasUpdate: boolean
           latestVersion?: string
           updateInfo?: any
+          migrationRequired?: boolean
+          migrationReasons?: string[]
+          releaseUrl?: string
           error?: string
         }>
         updaterStartUpdate: (updateInfo: any) => Promise<{

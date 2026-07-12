@@ -1,0 +1,101 @@
+import { app, dialog, shell } from 'electron'
+import type { WindowsUpdater } from '../windowsUpdater'
+import {
+  getWindowsInstallCompatibility,
+  WINDOWS_RELEASE_URL,
+  type WindowsInstallCompatibility
+} from '../windowsInstallCompatibility'
+import type {
+  CreatePlatformUpdater,
+  PlatformDownloadStatus,
+  PlatformUpdateActionResult,
+  PlatformUpdateInfo,
+  PlatformUpdateResult,
+  PlatformUpdaterCallbacks,
+  PlatformUpdaterService
+} from './types'
+
+class WindowsPlatformUpdater implements PlatformUpdaterService {
+  private updater: WindowsUpdater | null = null
+  private compatibility: WindowsInstallCompatibility | null = null
+  private migrationPromptShown = false
+
+  constructor(private readonly callbacks: PlatformUpdaterCallbacks) {}
+
+  public async initialize(): Promise<void> {
+    this.compatibility = await getWindowsInstallCompatibility()
+    if (this.compatibility.migrationRequired) {
+      await this.showMigrationPrompt(this.compatibility.reasons)
+      return
+    }
+    if (!this.compatibility.compatible) return
+
+    const { WindowsUpdater } = await import('../windowsUpdater')
+    this.updater = new WindowsUpdater(this.callbacks, this.compatibility)
+  }
+
+  private async showMigrationPrompt(reasons: string[]): Promise<void> {
+    if (this.migrationPromptShown) return
+    this.migrationPromptShown = true
+
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: '需要安装完整版本',
+      message: '当前 Windows 安装需要迁移到新的完整更新方式',
+      detail: `${reasons.join('；')}。请从 GitHub Release 下载并安装最新完整版本，用户数据和插件不会被删除。`,
+      buttons: ['打开下载页面', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    })
+
+    if (result.response === 0) await shell.openExternal(WINDOWS_RELEASE_URL)
+  }
+
+  public async checkForUpdates(downloadWhenAvailable: boolean): Promise<PlatformUpdateResult> {
+    if (this.updater) return this.updater.checkForUpdates(downloadWhenAvailable)
+
+    if (this.compatibility?.migrationRequired) {
+      return {
+        success: true,
+        status: 'migration-required',
+        hasUpdate: false,
+        currentVersion: app.getVersion(),
+        migrationRequired: true,
+        migrationReasons: this.compatibility.reasons,
+        releaseUrl: WINDOWS_RELEASE_URL
+      }
+    }
+
+    return { success: true, status: 'not-available', hasUpdate: false }
+  }
+
+  public async startUpdate(updateInfo?: PlatformUpdateInfo): Promise<PlatformUpdateActionResult> {
+    if (this.updater) return this.updater.downloadAndInstall()
+
+    await shell.openExternal(updateInfo?.releaseUrl || WINDOWS_RELEASE_URL)
+    return { success: true, migrationRequired: true }
+  }
+
+  public installDownloadedUpdate(): PlatformUpdateActionResult {
+    if (this.updater) return this.updater.installDownloadedUpdate()
+    return { success: false, error: '当前安装需要完整版本迁移' }
+  }
+
+  public getDownloadStatus(): PlatformDownloadStatus {
+    if (this.updater) return this.updater.getDownloadStatus()
+    return {
+      hasDownloaded: false,
+      status: this.compatibility?.migrationRequired ? 'migration-required' : 'idle'
+    }
+  }
+
+  public cleanup(): void {
+    return
+  }
+}
+
+const createWindowsUpdater: CreatePlatformUpdater = (callbacks) =>
+  new WindowsPlatformUpdater(callbacks)
+
+export default createWindowsUpdater

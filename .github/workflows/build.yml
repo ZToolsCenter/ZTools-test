@@ -17,6 +17,10 @@ on:
         description: '是否发布到 GitHub Release'
         type: boolean
         default: true
+      legacy_windows_update_package:
+        description: '是否为旧版 Windows updater 生成一次性 ASAR 桥接包'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -105,6 +109,10 @@ jobs:
 
       # 统一构建命令
       - name: Build and Package
+        env:
+          ZTOOLS_LEGACY_UPDATE_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_windows_update_package && 'true' || 'false' }}
+          CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
         run: ${{ matrix.build_cmd }}
 
       # 上传平台产物（只上传指定文件类型）
@@ -116,6 +124,8 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.zip
+            dist/*.yml
+            dist/*.blockmap
           if-no-files-found: warn
 
   release:
@@ -192,7 +202,7 @@ jobs:
           name: artifact-windows-latest-x64
           path: dist
 
-      # 生成更新信息和下载链接
+      # 生成下载链接；latest.yml 等标准更新元数据来自 Windows 构建产物
       - name: Generate update info
         env:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
@@ -212,7 +222,7 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.zip
-            latest.yml
+            dist/latest.yml
 
       # # 安装 ossutil
       # - name: Setup ossutil

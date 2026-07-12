@@ -11,6 +11,9 @@
     "paths": {
       "@shared/*": [
         "./src/shared/*"
+      ],
+      "@platform-updater": [
+        "./src/main/api/platformUpdater/windows.ts"
       ]
     },
     "types": [

@@ -142,14 +142,14 @@ ZTools supports one-click in-app updates without manual download:
 **Technical Implementation**:
 
 - Update source: GitHub Releases ([ZTools](https://github.com/ZToolsCenter/ZTools/releases))
-- Update info file: `latest.yml` (contains version number, changelog, etc.)
-- Update package format: ZIP archive with naming format `update-{platform}-{arch}-{version}.zip`
+- Windows metadata: electron-builder standard `latest.yml` with installer SHA-512 and size
+- macOS update package: ZIP archive named `update-{platform}-{arch}-{version}.zip`
   - Example: `update-darwin-arm64-1.2.8.zip` (macOS Apple Silicon)
-  - Example: `update-win32-x64-1.2.8.zip` (Windows x64)
 - Updater program: Independent `ztools-updater` executable
   - macOS: `ztools-updater` (located in Contents/MacOS/)
-  - Windows: `ztools-agent.exe` (located in app root directory)
-- Update flow:
+- Windows uses `electron-updater + NSIS` to verify and silently install the full package in the existing installation directory
+- Legacy Windows installations that only replaced ASAR are directed to GitHub Releases for one full-package installation
+- macOS update flow:
   1. Download `latest.yml` from GitHub Releases to get latest version info
   2. Download update package for the corresponding platform
   3. Extract and launch independent updater program
@@ -160,7 +160,7 @@ ZTools supports one-click in-app updates without manual download:
 **Platform Support**:
 
 - ✅ macOS (Apple Silicon)
-- ✅ Windows (x64)
+- ✅ Windows (x64, electron-updater + NSIS)
 
 ## 🧩 Plugin Development
 

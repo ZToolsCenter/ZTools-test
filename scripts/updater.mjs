@@ -1,5 +1,5 @@
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import yaml from 'yaml'
-import { readFileSync, writeFileSync } from 'fs'
 import {
   getProcessedVersion,
   isDevBuild,
@@ -20,19 +20,23 @@ console.log(`版本号: ${version}`)
 console.log(`构建类型: ${isDev ? 'dev' : 'release'}`)
 console.log(`下载地址: ${downloadUrl}`)
 
-// 创建 latest.yml 内容
-const latest = {
-  version,
-  changelog
-}
-
 // 生成下载链接并追加到 changelog
 const downloadLinks = generateDownloadLinksMarkdown(downloadUrl, version)
 const updatedChangelog = changelog + downloadLinks
 
-// 写入文件
-writeFileSync('latest.yml', yaml.stringify(latest))
+// electron-builder 先生成标准元数据，这里只补充发布说明和旧 updater 兼容字段。
+const updateMetadataPath = 'dist/latest.yml'
+if (existsSync(updateMetadataPath)) {
+  const updateMetadata = yaml.parse(readFileSync(updateMetadataPath, 'utf-8'))
+  updateMetadata.releaseNotes = changelog
+  updateMetadata.changelog = changelog
+  writeFileSync(updateMetadataPath, yaml.stringify(updateMetadata))
+  console.log(`✅ 已向 ${updateMetadataPath} 添加 releaseNotes 和 changelog`)
+} else {
+  console.warn(`⚠️ 未找到 ${updateMetadataPath}，跳过更新元数据补充`)
+}
+
 writeFileSync('changelog.md', updatedChangelog)
 
-console.log(`✅ 已生成 latest.yml`)
+console.log(`✅ 标准更新元数据由 electron-builder 生成并保留 SHA-512`)
 console.log(`✅ 已更新 changelog.md（添加下载链接）`)

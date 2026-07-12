@@ -260,6 +260,9 @@ declare global {
           currentVersion?: string
           latestVersion?: string
           updateInfo?: any
+          migrationRequired?: boolean
+          migrationReasons?: string[]
+          releaseUrl?: string
           error?: string
         }>
         startUpdate: (updateInfo: any) => Promise<{ success: boolean; error?: string }>
@@ -267,12 +270,10 @@ declare global {
         getDownloadStatus: () => Promise<{
           hasDownloaded: boolean
           version?: string
-          changelog?: string[]
+          changelog?: string
         }>
       }
-      onUpdateDownloaded: (
-        callback: (data: { version: string; changelog: string[] }) => void
-      ) => void
+      onUpdateDownloaded: (callback: (data: { version: string; changelog: string }) => void) => void
       onUpdateDownloadStart: (callback: (data: { version: string }) => void) => void
       onUpdateDownloadFailed: (callback: (data: { error: string }) => void) => void
       getPlatform: () => string

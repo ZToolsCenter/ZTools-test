@@ -1,7 +1,9 @@
 import { is } from '@electron-toolkit/utils'
+import { execFile } from 'child_process'
 import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from 'electron'
 import path from 'path'
 
+const APP_BUNDLE_ID = 'top.z-tools'
 let permissionWindow: BrowserWindow | null = null
 
 export function isAccessibilityPermissionWindowActive(): boolean {
@@ -69,16 +71,23 @@ function showAccessibilityPermissionWindow(): Promise<void> {
 
   return new Promise((resolve) => {
     let settled = false
+    let resettingPermission = false
 
     const cleanup = (): void => {
       clearInterval(permissionPoller)
       ipcMain.removeListener('accessibility-permission:open-settings', handleOpenSettings)
-      ipcMain.removeListener('accessibility-permission:check', handleCheck)
+      ipcMain.removeListener('accessibility-permission:reset', handleReset)
       ipcMain.removeListener('accessibility-permission:quit', handleQuit)
     }
 
     const finishWhenGranted = (): void => {
-      if (settled || !systemPreferences.isTrustedAccessibilityClient(false)) return
+      if (
+        settled ||
+        resettingPermission ||
+        !systemPreferences.isTrustedAccessibilityClient(false)
+      ) {
+        return
+      }
       settled = true
       cleanup()
       window.webContents.send('accessibility-permission:granted')
@@ -106,9 +115,45 @@ function showAccessibilityPermissionWindow(): Promise<void> {
       finishWhenGranted()
     }
 
-    const handleCheck = (event: Electron.IpcMainEvent): void => {
-      if (!isPermissionWindowSender(event)) return
-      finishWhenGranted()
+    const handleReset = (event: Electron.IpcMainEvent): void => {
+      if (!isPermissionWindowSender(event) || resettingPermission) return
+
+      if (!app.isPackaged) {
+        window.webContents.send('accessibility-permission:reset-result', {
+          success: false,
+          error: '开发模式下不执行权限重置，请使用打包版本测试'
+        })
+        return
+      }
+
+      resettingPermission = true
+      execFile(
+        '/usr/bin/tccutil',
+        ['reset', 'Accessibility', APP_BUNDLE_ID],
+        (error, _stdout, stderr) => {
+          if (error) {
+            resettingPermission = false
+            console.error('[Main] 重置辅助功能权限失败:', stderr.trim() || error)
+            if (!window.isDestroyed()) {
+              window.webContents.send('accessibility-permission:reset-result', {
+                success: false,
+                error: '权限重置失败，请在系统设置中手动删除 ZTools'
+              })
+            }
+            return
+          }
+
+          settled = true
+          cleanup()
+          if (!window.isDestroyed()) {
+            window.webContents.send('accessibility-permission:reset-result', { success: true })
+          }
+          setTimeout(() => {
+            app.relaunch()
+            app.exit(0)
+          }, 1000)
+        }
+      )
     }
 
     const handleQuit = (event: Electron.IpcMainEvent): void => {
@@ -120,7 +165,7 @@ function showAccessibilityPermissionWindow(): Promise<void> {
 
     const permissionPoller = setInterval(finishWhenGranted, 1000)
     ipcMain.on('accessibility-permission:open-settings', handleOpenSettings)
-    ipcMain.on('accessibility-permission:check', handleCheck)
+    ipcMain.on('accessibility-permission:reset', handleReset)
     ipcMain.on('accessibility-permission:quit', handleQuit)
   })
 }

@@ -4,6 +4,7 @@
  * 演示如何按契约注册 translation / ocr 两个 provider。
  * 这里用 mock 实现演示接入流程；真实插件请替换为对自身服务的调用。
  */
+/* global ztools */
 
 // 翻译 provider：入参 { text, from?, to? }，返回 { text, detectedFrom? }
 ztools.registerProvider('translation', async (input) => {
