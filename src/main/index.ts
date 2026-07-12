@@ -19,10 +19,11 @@ async function showBlockingRuntimePrompt(): Promise<void> {
     await app.whenReady()
     const result = await dialog.showMessageBox({
       type: 'warning',
-      title: '需要安装完整版本',
-      message: '当前版本无法在此 Electron 运行环境中继续启动',
-      detail: `${runtimeCompatibility.reason}。请下载并安装最新完整版本，用户数据和插件不会被删除。`,
-      buttons: ['下载完整版本', '退出应用'],
+      title: '需要更新 ZTools',
+      message: '当前版本需要升级后才能继续使用',
+      detail:
+        'ZTools 的基础组件已经升级，当前版本无法直接完成更新。请安装最新完整版本，您的数据、设置和插件都会保留。',
+      buttons: ['下载最新版本', '退出应用'],
       defaultId: 0,
       cancelId: 1,
       noLink: true

@@ -25,7 +25,7 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
   public async initialize(): Promise<void> {
     this.compatibility = await getWindowsInstallCompatibility()
     if (this.compatibility.migrationRequired) {
-      await this.showMigrationPrompt(this.compatibility.reasons)
+      await this.showMigrationPrompt()
       return
     }
     if (!this.compatibility.compatible) return
@@ -34,16 +34,17 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
     this.updater = new WindowsUpdater(this.callbacks, this.compatibility)
   }
 
-  private async showMigrationPrompt(reasons: string[]): Promise<void> {
+  private async showMigrationPrompt(): Promise<void> {
     if (this.migrationPromptShown) return
     this.migrationPromptShown = true
 
     const result = await dialog.showMessageBox({
       type: 'info',
-      title: '需要安装完整版本',
-      message: '当前 Windows 安装需要迁移到新的完整更新方式',
-      detail: `${reasons.join('；')}。请从 GitHub Release 下载并安装最新完整版本，用户数据和插件不会被删除。`,
-      buttons: ['打开下载页面', '稍后'],
+      title: '需要更新 ZTools',
+      message: '请安装一次最新完整版本',
+      detail:
+        '当前版本使用的是较早的更新方式，无法直接完成本次升级。安装最新完整版本后，即可继续正常接收更新，您的数据、设置和插件都会保留。',
+      buttons: ['下载最新版本', '稍后'],
       defaultId: 0,
       cancelId: 1,
       noLink: true
