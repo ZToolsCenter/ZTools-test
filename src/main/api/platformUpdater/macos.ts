@@ -28,7 +28,7 @@ interface LegacyUpdatePaths {
 
 class MacPlatformUpdater implements PlatformUpdaterService {
   private readonly latestYmlUrl =
-    'https://github.com/ZToolsCenter/ZTools/releases/latest/download/latest.yml'
+    'https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/latest.yml'
   private downloadedUpdateInfo: PlatformUpdateInfo | null = null
   private downloadedUpdatePath: string | null = null
   private checkPromise: Promise<PlatformUpdateResult> | null = null
@@ -119,7 +119,7 @@ class MacPlatformUpdater implements PlatformUpdaterService {
 
   private buildUpdateDownloadUrl(version: string): string {
     const fileName = `update-darwin-${process.arch}-${version}.zip`
-    return `https://github.com/ZToolsCenter/ZTools/releases/latest/download/${fileName}`
+    return `https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/${fileName}`
   }
 
   private async downloadUpdate(

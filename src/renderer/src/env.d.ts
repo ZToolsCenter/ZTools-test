@@ -265,7 +265,7 @@ declare global {
           releaseUrl?: string
           error?: string
         }>
-        startUpdate: (updateInfo: any) => Promise<{ success: boolean; error?: string }>
+        startUpdate: () => Promise<{ success: boolean; error?: string }>
         installDownloadedUpdate: () => Promise<{ success: boolean; error?: string }>
         getDownloadStatus: () => Promise<{
           hasDownloaded: boolean

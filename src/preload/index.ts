@@ -295,7 +295,7 @@ const api = {
   // 软件更新
   updater: {
     checkUpdate: () => ipcRenderer.invoke('updater:check-update'),
-    startUpdate: (updateInfo: any) => ipcRenderer.invoke('updater:start-update', updateInfo),
+    startUpdate: () => ipcRenderer.invoke('updater:start-update'),
     installDownloadedUpdate: () => ipcRenderer.invoke('updater:install-downloaded-update'),
     getDownloadStatus: () => ipcRenderer.invoke('updater:get-download-status')
   },

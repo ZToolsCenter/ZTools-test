@@ -373,7 +373,7 @@ declare global {
           releaseUrl?: string
           error?: string
         }>
-        updaterStartUpdate: (updateInfo: any) => Promise<{
+        updaterStartUpdate: () => Promise<{
           success: boolean
           error?: string
         }>

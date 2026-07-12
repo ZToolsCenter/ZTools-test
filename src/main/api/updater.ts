@@ -54,7 +54,7 @@ export class UpdaterAPI {
 
   private setupIPC(): void {
     ipcMain.handle('updater:check-update', () => this.checkUpdate())
-    ipcMain.handle('updater:start-update', (_event, updateInfo) => this.startUpdate(updateInfo))
+    ipcMain.handle('updater:start-update', () => this.startUpdate())
     ipcMain.handle('updater:install-downloaded-update', () => this.installDownloadedUpdate())
     ipcMain.handle('updater:get-download-status', () => this.getDownloadStatus())
 
@@ -148,13 +148,15 @@ export class UpdaterAPI {
     return result
   }
 
-  public async startUpdate(updateInfo?: PlatformUpdateInfo): Promise<{
+  public async startUpdate(): Promise<{
     success: boolean
     migrationRequired?: boolean
     error?: string
   }> {
     await this.initializationPromise
     if (!this.platformUpdater) return { success: false, error: '更新器尚未初始化' }
+    const updateInfo = this.availableUpdateInfo ?? this.downloadedUpdateInfo
+    if (!updateInfo) return { success: false, error: '没有可用的更新' }
     return this.platformUpdater.startUpdate(updateInfo)
   }
 

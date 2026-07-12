@@ -1131,8 +1131,8 @@ window.ztools = {
     // ==================== 应用更新 API ====================
     updaterCheckUpdate: async () =>
       await electron.ipcRenderer.invoke('internal:updater-check-update'),
-    updaterStartUpdate: async (updateInfo) =>
-      await electron.ipcRenderer.invoke('internal:updater-start-update', updateInfo),
+    updaterStartUpdate: async () =>
+      await electron.ipcRenderer.invoke('internal:updater-start-update'),
     updaterSetAutoCheck: async (enabled) =>
       await electron.ipcRenderer.invoke('internal:updater-set-auto-check', enabled),
 

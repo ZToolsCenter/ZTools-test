@@ -1134,11 +1134,11 @@ export class InternalPluginAPI {
       return await updaterAPI.checkUpdate()
     })
 
-    ipcMain.handle('internal:updater-start-update', async (event, updateInfo: any) => {
+    ipcMain.handle('internal:updater-start-update', async (event) => {
       if (!requireInternalPlugin(this.pluginManager, event)) {
         throw new PermissionDeniedError('internal:updater-start-update')
       }
-      return await updaterAPI.startUpdate(updateInfo)
+      return await updaterAPI.startUpdate()
     })
 
     ipcMain.handle('internal:updater-set-auto-check', async (event, enabled: boolean) => {

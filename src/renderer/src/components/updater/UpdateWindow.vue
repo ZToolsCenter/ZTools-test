@@ -119,7 +119,7 @@ const startUpdate = async (): Promise<void> => {
     downloadProgress.value = 0
     transferredBytes.value = 0
     totalBytes.value = 0
-    const result = await window.ztools.updater.startUpdate(updateInfo.value)
+    const result = await window.ztools.updater.startUpdate()
     if (!result.success) {
       updateError.value = result.error || '下载更新失败'
       status.value = 'error'
@@ -151,6 +151,8 @@ function applyAcrylicOverlay(): void {
   if (existingStyle) {
     existingStyle.remove()
   }
+
+  if (!document.documentElement.classList.contains('os-windows')) return
 
   const material = document.documentElement.getAttribute('data-material')
 
@@ -267,7 +269,11 @@ onBeforeUnmount(() => {
 
 <style>
 /* 全局样式覆盖 */
-body {
+html,
+body,
+#updater-app {
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -279,12 +285,12 @@ body {
 
 <style scoped>
 .update-window {
+  box-sizing: border-box;
   width: 100vw;
   height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-color);
-  border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   border: 1px solid rgba(0, 0, 0, 0.1);
