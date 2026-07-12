@@ -105,9 +105,6 @@ jobs:
 
       # 统一构建命令
       - name: Build and Package
-        env:
-          CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
         run: ${{ matrix.build_cmd }}
 
       # 上传平台产物（只上传指定文件类型）
