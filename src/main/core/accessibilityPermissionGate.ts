@@ -1,7 +1,7 @@
 import { is } from '@electron-toolkit/utils'
 import { execFile } from 'child_process'
 import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from 'electron'
-import path from 'path'
+import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 
 const APP_BUNDLE_ID = 'top.z-tools'
 let permissionWindow: BrowserWindow | null = null
@@ -50,7 +50,7 @@ function showAccessibilityPermissionWindow(): Promise<void> {
     hasShadow: true,
     type: 'panel',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: getPreloadPath(),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -61,7 +61,7 @@ function showAccessibilityPermissionWindow(): Promise<void> {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     window.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/accessibility-permission.html`)
   } else {
-    window.loadFile(path.join(__dirname, '../renderer/accessibility-permission.html'))
+    window.loadFile(getRendererPath('accessibility-permission.html'))
   }
 
   window.once('ready-to-show', () => {

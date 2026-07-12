@@ -1,6 +1,6 @@
 import { is } from '@electron-toolkit/utils'
 import { BrowserWindow, dialog, ipcMain, screen } from 'electron'
-import path from 'path'
+import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 import { applyWindowMaterial, getDefaultWindowMaterial } from '../utils/windowUtils'
 import { legacyImportService } from './storage/legacyImportService'
 import { storageManager } from './storage/storageManager'
@@ -73,7 +73,7 @@ function showLegacyImportWindow(): Promise<LegacyImportWindowResult> {
     hasShadow: true,
     type: 'panel',
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: getPreloadPath(),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -92,7 +92,7 @@ function showLegacyImportWindow(): Promise<LegacyImportWindowResult> {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     importWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/legacy-import.html`)
   } else {
-    importWindow.loadFile(path.join(__dirname, '../renderer/legacy-import.html'))
+    importWindow.loadFile(getRendererPath('legacy-import.html'))
   }
 
   if (process.platform === 'win32') {

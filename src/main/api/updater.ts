@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, screen } from 'electron'
 import { is } from '@electron-toolkit/utils'
-import path from 'path'
+import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 import createPlatformUpdater from '@platform-updater'
 import type { PlatformUpdateInfo, PlatformUpdaterService } from './platformUpdater/types'
 import databaseAPI from './shared/database.js'
@@ -175,7 +175,7 @@ export class UpdaterAPI {
       hasShadow: true,
       type: 'panel',
       webPreferences: {
-        preload: path.join(__dirname, '../preload/index.js'),
+        preload: getPreloadPath(),
         sandbox: false,
         contextIsolation: true,
         nodeIntegration: false
@@ -193,7 +193,7 @@ export class UpdaterAPI {
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       void this.updateWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/updater.html`)
     } else {
-      void this.updateWindow.loadFile(path.join(__dirname, '../renderer/updater.html'))
+      void this.updateWindow.loadFile(getRendererPath('updater.html'))
     }
 
     if (process.platform === 'win32') this.applyMaterialToUpdateWindow(this.updateWindow)

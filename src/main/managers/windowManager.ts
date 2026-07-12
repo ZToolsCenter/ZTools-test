@@ -9,7 +9,7 @@ import {
   screen,
   Tray
 } from 'electron'
-import path from 'path'
+import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 // import trayIconLight from '../../../resources/icons/trayTemplate@2x-light.png?asset'
 import trayIcon from '../../../resources/icons/trayTemplate@2x.png?asset'
 import windowsIcon from '../../../resources/icons/windows-icon.png?asset'
@@ -315,7 +315,7 @@ class WindowManager {
       show: false,
       hasShadow: true, // 启用窗口阴影（可调整为 false 来移除阴影）
       webPreferences: {
-        preload: path.join(__dirname, '../preload/index.js'),
+        preload: getPreloadPath(),
         backgroundThrottling: false, // 窗口最小化时是否继续动画和定时器
         contextIsolation: true, // 禁用上下文隔离, 渲染进程和preload共用window对象
         nodeIntegration: false, // 渲染进程禁止直接使用 Node
@@ -412,8 +412,9 @@ class WindowManager {
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       this.mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
-      console.log('[Window] 生产模式下加载文件:', path.join(__dirname, '../renderer/index.html'))
-      this.mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+      const rendererPath = getRendererPath('index.html')
+      console.log('[Window] 生产模式下加载文件:', rendererPath)
+      this.mainWindow.loadFile(rendererPath)
     }
 
     // 等待页面加载完成后再处理错误

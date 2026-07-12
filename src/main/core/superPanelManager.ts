@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain, screen } from 'electron'
-import path from 'path'
+import { getPreloadPath, getRendererPath } from '../utils/appBundlePath'
 import { is } from '@electron-toolkit/utils'
 import {
   ClipboardMonitor,
@@ -360,7 +360,7 @@ class SuperPanelManager {
       hasShadow: true,
       type: 'panel',
       webPreferences: {
-        preload: path.join(__dirname, '../preload/index.js'),
+        preload: getPreloadPath(),
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
@@ -395,7 +395,7 @@ class SuperPanelManager {
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
       win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/super-panel.html`)
     } else {
-      win.loadFile(path.join(__dirname, '../renderer/super-panel.html'))
+      win.loadFile(getRendererPath('super-panel.html'))
     }
 
     // 窗口加载完成后显示
