@@ -31,31 +31,21 @@ async function handleCheckUpdate(): Promise<void> {
     const result = await window.ztools.internal.updaterCheckUpdate()
     if (result.migrationRequired) {
       const shouldOpenRelease = await confirm({
-        title: '需要安装完整版本',
-        message: `当前安装无法使用新的 Windows 自动更新方式。\n\n${result.migrationReasons?.join('；') || ''}`,
+        title: '需要更新 ZTools',
+        message:
+          '当前版本使用的是较早的更新方式，请安装一次最新完整版本。您的数据、设置和插件都会保留。',
         type: 'info',
-        confirmText: '打开下载页面',
+        confirmText: '下载最新版本',
         cancelText: '稍后'
       })
       if (shouldOpenRelease) {
         window.ztools.shellOpenExternal(
-          result.releaseUrl || 'https://github.com/ZToolsCenter/ZTools-test/releases/latest'
+          result.releaseUrl || 'https://github.com/ZToolsCenter/ZTools/releases/latest'
         )
       }
       return
     }
-    if (result.hasUpdate) {
-      const shouldUpdate = await confirm({
-        title: '发现新版本',
-        message: `发现新版本 ${result.latestVersion}，是否立即更新？\n\n更新内容：\n${result.updateInfo?.releaseNotes || result.updateInfo?.changelog || '无'}`,
-        type: 'info',
-        confirmText: '立即更新',
-        cancelText: '稍后'
-      })
-      if (shouldUpdate) {
-        await window.ztools.internal.updaterStartUpdate(result.updateInfo)
-      }
-    } else {
+    if (!result.hasUpdate) {
       if (result.error) {
         error('检查更新出错: ' + result.error)
       } else {

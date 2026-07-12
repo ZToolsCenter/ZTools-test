@@ -1,6 +1,6 @@
 <template>
   <div class="startup-dialog-window" tabindex="0" @keydown="handleKeydown">
-    <div class="header">
+    <div class="header window-drag-region">
       <img :src="logo" class="header-icon" draggable="false" />
       <div class="header-info">
         <div class="title">检测到旧版本 ZTools 数据</div>

@@ -1,6 +1,6 @@
 <template>
   <div class="startup-dialog-window" tabindex="0" @keydown.esc="quitApp">
-    <div class="header">
+    <div class="header window-drag-region">
       <img :src="logo" class="header-icon" draggable="false" />
       <div class="header-info">
         <div class="title">需要开启辅助功能权限</div>

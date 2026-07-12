@@ -15,6 +15,7 @@ import type {
   PlatformUpdaterCallbacks,
   PlatformUpdaterService
 } from './types'
+import { compareVersions } from './versionComparison'
 
 interface LegacyUpdatePaths {
   updaterPath: string
@@ -27,7 +28,7 @@ interface LegacyUpdatePaths {
 
 class MacPlatformUpdater implements PlatformUpdaterService {
   private readonly latestYmlUrl =
-    'https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/latest.yml'
+    'https://github.com/ZToolsCenter/ZTools/releases/latest/download/latest.yml'
   private downloadedUpdateInfo: PlatformUpdateInfo | null = null
   private downloadedUpdatePath: string | null = null
   private checkPromise: Promise<PlatformUpdateResult> | null = null
@@ -62,7 +63,7 @@ class MacPlatformUpdater implements PlatformUpdaterService {
 
         const latestVersion = updateMetadata.version
         const currentVersion = app.getVersion()
-        if (this.compareVersions(latestVersion, currentVersion) <= 0) {
+        if (compareVersions(latestVersion, currentVersion) <= 0) {
           return {
             success: true,
             status: 'not-available',
@@ -118,7 +119,7 @@ class MacPlatformUpdater implements PlatformUpdaterService {
 
   private buildUpdateDownloadUrl(version: string): string {
     const fileName = `update-darwin-${process.arch}-${version}.zip`
-    return `https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/${fileName}`
+    return `https://github.com/ZToolsCenter/ZTools/releases/latest/download/${fileName}`
   }
 
   private async downloadUpdate(
@@ -134,8 +135,25 @@ class MacPlatformUpdater implements PlatformUpdaterService {
       await fs.mkdir(tempDir, { recursive: true })
       const tempZipPath = path.join(tempDir, `update-${Date.now()}.zip`)
       const extractPath = path.join(tempDir, `extracted-${Date.now()}`)
+      let lastReceivedBytes = 0
+      let lastProgressAt = Date.now()
 
-      await downloadFile(updateInfo.downloadUrl, tempZipPath)
+      await downloadFile(updateInfo.downloadUrl, tempZipPath, {
+        onProgress: (progress) => {
+          const now = Date.now()
+          const delta = Math.max(0, progress.receivedBytes - lastReceivedBytes)
+          const elapsedSeconds = Math.max(0.001, (now - lastProgressAt) / 1000)
+          this.callbacks.onDownloadProgress({
+            bytesPerSecond: delta / elapsedSeconds,
+            delta,
+            percent: progress.percent ?? 0,
+            total: progress.totalBytes ?? 0,
+            transferred: progress.receivedBytes
+          })
+          lastReceivedBytes = progress.receivedBytes
+          lastProgressAt = now
+        }
+      })
       await fs.mkdir(extractPath, { recursive: true })
 
       const zip = new AdmZip(tempZipPath)
@@ -246,18 +264,6 @@ class MacPlatformUpdater implements PlatformUpdaterService {
 
   public cleanup(): void {
     return
-  }
-
-  private compareVersions(v1: string, v2: string): number {
-    const parts1 = v1.split('.').map(Number)
-    const parts2 = v2.split('.').map(Number)
-    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
-      const p1 = parts1[i] || 0
-      const p2 = parts2[i] || 0
-      if (p1 > p2) return 1
-      if (p1 < p2) return -1
-    }
-    return 0
   }
 }
 

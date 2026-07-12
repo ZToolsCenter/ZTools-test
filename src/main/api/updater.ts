@@ -10,6 +10,7 @@ import { applyWindowMaterial, getDefaultWindowMaterial } from '../utils/windowUt
 export class UpdaterAPI {
   private mainWindow: BrowserWindow | null = null
   private checkTimer: NodeJS.Timeout | null = null
+  private availableUpdateInfo: PlatformUpdateInfo | null = null
   private downloadedUpdateInfo: PlatformUpdateInfo | null = null
   private updateWindow: BrowserWindow | null = null
   private platformUpdater: PlatformUpdaterService | null = null
@@ -18,12 +19,10 @@ export class UpdaterAPI {
   public init(mainWindow: BrowserWindow): void {
     this.mainWindow = mainWindow
     this.platformUpdater = createPlatformUpdater({
-      onDownloadStart: (info) => this.mainWindow?.webContents.send('update-download-start', info),
-      onDownloadProgress: (info) =>
-        this.mainWindow?.webContents.send('update-download-progress', info),
+      onDownloadStart: (info) => this.sendUpdateEvent('update-download-start', info),
+      onDownloadProgress: (info) => this.sendUpdateEvent('update-download-progress', info),
       onDownloaded: (info, showWindow) => this.handleUpdateDownloaded(info, showWindow),
-      onDownloadFailed: (error) =>
-        this.mainWindow?.webContents.send('update-download-failed', { error }),
+      onDownloadFailed: (error) => this.sendUpdateEvent('update-download-failed', { error }),
       onBeforeInstall: () => windowManager.setQuitting(true)
     })
     this.initializationPromise = this.platformUpdater.initialize().catch((error) => {
@@ -35,9 +34,22 @@ export class UpdaterAPI {
   }
 
   private handleUpdateDownloaded(info: PlatformUpdateInfo, showWindow: boolean): void {
+    this.availableUpdateInfo = info
     this.downloadedUpdateInfo = info
-    this.mainWindow?.webContents.send('update-downloaded', info)
+    this.sendUpdateEvent('update-downloaded', info)
     if (showWindow) this.createUpdateWindow()
+  }
+
+  private sendUpdateEvent(channel: string, payload: unknown): void {
+    this.mainWindow?.webContents.send(channel, payload)
+    if (this.updateWindow && !this.updateWindow.isDestroyed()) {
+      this.updateWindow.webContents.send(channel, payload)
+    }
+  }
+
+  private showAvailableUpdate(info: PlatformUpdateInfo): void {
+    this.availableUpdateInfo = info
+    this.createUpdateWindow()
   }
 
   private setupIPC(): void {
@@ -49,10 +61,11 @@ export class UpdaterAPI {
     ipcMain.on('updater:quit-and-install', () => void this.installDownloadedUpdate())
     ipcMain.on('updater:close-window', () => this.closeUpdateWindow())
     ipcMain.on('updater:window-ready', () => {
-      if (this.updateWindow && this.downloadedUpdateInfo) {
+      const info = this.availableUpdateInfo ?? this.downloadedUpdateInfo
+      if (this.updateWindow && info) {
         this.updateWindow.webContents.send('update-info', {
-          version: this.downloadedUpdateInfo.version,
-          changelog: this.downloadedUpdateInfo.changelog
+          ...info,
+          downloadStatus: this.getDownloadStatus()
         })
       }
     })
@@ -68,13 +81,13 @@ export class UpdaterAPI {
         return
       }
 
-      void this.autoCheckAndDownload()
+      void this.autoCheckAndNotify()
       this.cleanupTimer()
-      this.checkTimer = setInterval(() => void this.autoCheckAndDownload(), 30 * 60 * 1000)
+      this.checkTimer = setInterval(() => void this.autoCheckAndNotify(), 30 * 60 * 1000)
     } catch (error) {
       console.error('[Updater] 启动自动检查更新失败:', error)
-      void this.autoCheckAndDownload()
-      this.checkTimer = setInterval(() => void this.autoCheckAndDownload(), 30 * 60 * 1000)
+      void this.autoCheckAndNotify()
+      this.checkTimer = setInterval(() => void this.autoCheckAndNotify(), 30 * 60 * 1000)
     }
   }
 
@@ -88,12 +101,13 @@ export class UpdaterAPI {
     else this.stopAutoCheck()
   }
 
-  private async autoCheckAndDownload(): Promise<void> {
+  private async autoCheckAndNotify(): Promise<void> {
     await this.initializationPromise
     if (!this.platformUpdater) return
 
-    const result = await this.platformUpdater.checkForUpdates(true)
+    const result = await this.platformUpdater.checkForUpdates(false)
     if (result.error) console.error('[Updater] 自动检查更新失败:', result.error)
+    if (result.hasUpdate && result.updateInfo) this.showAvailableUpdate(result.updateInfo)
   }
 
   private getDownloadStatus(): ReturnType<PlatformUpdaterService['getDownloadStatus']> {
@@ -129,7 +143,9 @@ export class UpdaterAPI {
     if (!this.platformUpdater) {
       return { success: false, hasUpdate: false, status: 'error', error: '更新器尚未初始化' }
     }
-    return this.platformUpdater.checkForUpdates(false)
+    const result = await this.platformUpdater.checkForUpdates(false)
+    if (result.hasUpdate && result.updateInfo) this.showAvailableUpdate(result.updateInfo)
+    return result
   }
 
   public async startUpdate(updateInfo?: PlatformUpdateInfo): Promise<{
