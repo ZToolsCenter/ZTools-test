@@ -17,10 +17,6 @@ on:
         description: '是否发布到 GitHub Release'
         type: boolean
         default: true
-      legacy_windows_update_package:
-        description: '是否为旧版 Windows updater 生成一次性 ASAR 桥接包'
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -110,7 +106,6 @@ jobs:
       # 统一构建命令
       - name: Build and Package
         env:
-          ZTOOLS_LEGACY_UPDATE_PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_windows_update_package && 'true' || 'false' }}
           CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
         run: ${{ matrix.build_cmd }}
