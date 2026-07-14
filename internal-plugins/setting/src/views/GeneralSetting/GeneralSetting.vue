@@ -9,6 +9,7 @@ import {
   type AutoPasteOption,
   type MouseButtonType,
   type PrimaryColor,
+  type TerminalType,
   type ThemeType,
   type WindowPositionStrategy
 } from '@/constants'
@@ -109,6 +110,38 @@ const superPanelMouseButtonOptions = [
 // 当前平台（与 window.ztools.getPlatform 返回类型保持一致）
 const platform = ref<'darwin' | 'win32' | 'linux'>('darwin')
 
+// 终端打开设置
+const terminal = ref<TerminalType>('default')
+const terminalCustomCommand = ref('')
+
+// 终端预设选项（按平台；仅 UI 标签，启动逻辑在主进程 terminalLauncher）
+const terminalOptions = computed(() => {
+  if (platform.value === 'win32') {
+    return [
+      { label: '系统默认', value: 'default' },
+      { label: 'Windows Terminal', value: 'wt' },
+      { label: 'PowerShell', value: 'powershell' },
+      { label: 'CMD', value: 'cmd' },
+      { label: '自定义', value: 'custom' }
+    ]
+  }
+  if (platform.value === 'linux') {
+    return [
+      { label: '系统默认', value: 'default' },
+      { label: 'GNOME Terminal', value: 'gnome-terminal' },
+      { label: 'Konsole', value: 'konsole' },
+      { label: 'XTerm', value: 'xterm' },
+      { label: '自定义', value: 'custom' }
+    ]
+  }
+  return [
+    { label: '系统默认 (Terminal)', value: 'default' },
+    { label: 'Ghostty', value: 'ghostty' },
+    { label: 'iTerm2', value: 'iterm2' },
+    { label: '自定义', value: 'custom' }
+  ]
+})
+
 // 默认快捷键（根据平台区分文案）
 const defaultHotkey = computed(() => {
   return platform.value === 'win32' ? 'Alt+Z' : 'Option+Z'
@@ -129,6 +162,7 @@ const hotkeyPresets = computed(() => {
 })
 
 const showHotkeyQuickActions = ref(false)
+const settingsLoaded = ref(false)
 
 // 本地状态（替代 windowStore）
 const theme = ref<ThemeType>('system')
@@ -1209,6 +1243,10 @@ async function loadSettings(): Promise<void> {
       floatingBallEnabled.value = data.floatingBallEnabled ?? false
       floatingBallLetter.value = data.floatingBallLetter || 'Z'
 
+      // 终端打开配置
+      terminal.value = data.terminal ?? 'default'
+      terminalCustomCommand.value = data.terminalCustomCommand ?? ''
+
       // 加载自定义颜色
       if (data.customColor) {
         customColor.value = data.customColor
@@ -1282,18 +1320,29 @@ async function saveSettings(): Promise<void> {
       proxyEnabled: proxyEnabled.value,
       proxyUrl: proxyUrl.value,
       autoCheckUpdate: autoCheckUpdate.value,
-      clipboardRetentionDays: clipboardRetentionDays.value
+      clipboardRetentionDays: clipboardRetentionDays.value,
+      terminal: terminal.value,
+      terminalCustomCommand: terminalCustomCommand.value
     })
   } catch (error) {
     console.error('保存设置失败:', error)
   }
 }
 
+async function initializeSettings(): Promise<void> {
+  try {
+    // 平台会影响快捷键默认值和平台专属选项，需在设置表单展示前确定。
+    await getPlatformInfo()
+    await loadSettings()
+  } finally {
+    settingsLoaded.value = true
+  }
+}
+
 // 初始化时加载设置
 onMounted(() => {
-  loadSettings()
-  getPlatformInfo()
   document.addEventListener('click', handleQuickActionsClickOutside)
+  void initializeSettings()
 })
 
 onUnmounted(() => {
@@ -1302,7 +1351,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="content-panel">
+  <div v-if="settingsLoaded" class="content-panel">
     <!-- ==================== 基础 ==================== -->
     <div class="setting-group">
       <h3 class="setting-group-title">基础</h3>
@@ -1516,6 +1565,40 @@ onUnmounted(() => {
             :step="1"
             :formatter="(value) => `${value}%`"
             @change="handleAcrylicDarkOpacityChange"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 终端打开 ==================== -->
+    <div class="setting-group">
+      <h3 class="setting-group-title">终端打开</h3>
+
+      <div class="setting-item">
+        <div class="setting-label">
+          <span>打开终端应用</span>
+          <span class="setting-desc">从 Finder 唤出「在终端打开」时使用的终端</span>
+        </div>
+        <div class="setting-control">
+          <Dropdown v-model="terminal" :options="terminalOptions" @change="saveSettings" />
+        </div>
+      </div>
+
+      <div v-if="terminal === 'custom'" class="setting-item">
+        <div class="setting-label">
+          <span>自定义命令</span>
+          <span class="setting-desc"
+            >用 {path} 代表目标目录，如 ghostty --working-directory={path}</span
+          >
+        </div>
+        <div class="setting-control">
+          <input
+            v-model="terminalCustomCommand"
+            type="text"
+            class="input"
+            placeholder="alacritty --working-directory={path}"
+            @blur="saveSettings"
+            @keyup.enter="saveSettings"
           />
         </div>
       </div>
@@ -2216,6 +2299,7 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+  <div v-else class="content-panel" aria-busy="true"></div>
 </template>
 
 <style scoped>

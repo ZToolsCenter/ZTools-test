@@ -1,4 +1,4 @@
-# 3.0.0-beta.5
+# 3.0.0-beta.6
 
 ## 新功能 (Feat)
 
@@ -21,6 +21,9 @@
 - 安装包安装插件后支持立即打开
 - 支持自定义 Windows 安装路径
 - macOS 支持搜索启动嵌套子目录中的应用，并优化 PWA/应用目录扫描
+- 通用设置新增「终端打开」选项，可为 Finder 等文件管理器中的「在终端打开」功能选择终端应用；支持 macOS 的 Terminal、Ghostty、iTerm2，Windows 的 Windows Terminal、PowerShell、CMD，以及 Linux 的 GNOME Terminal、Konsole、XTerm，并支持使用 `{path}` 配置自定义命令（PR [#569](../../pull/569)，感谢 [@thirking](https://github.com/thirking) 的贡献 🎉）
+- macOS 启动时新增辅助功能权限检查与引导窗口，支持跳转系统设置、检测授权结果和重置异常权限
+- Windows 更新机制改用 `electron-updater` 下载并安装完整安装包，降低自定义升级程序引发安全软件误报的概率；旧版安装会引导完成一次完整安装，用户数据、设置和插件保持不变
 
 ## 修复 (Fix)
 
@@ -34,6 +37,9 @@
 - 修复进入插件后拖动窗口回到主搜索时搜索框没有聚焦的问题
 - 修复 Windows 修改快捷键后唤醒主窗口无法获取焦点的问题
 - 恢复全局快捷键自动复制触发限制，避免非预期自动复制（PR [#530](../../pull/530)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
+- 修复 macOS 在全屏应用中唤出 ZTools 时窗口一闪而过或落到桌面空间的问题（PR [#577](../../pull/577)，感谢 [@Ethan0x0000](https://github.com/Ethan0x0000) 的贡献 🎉）
+- 修复 macOS 唤出窗口时偶发焦点丢失的问题
+- 修复搜索结果包含 Finder 项目时，使用方向键导航位置异常的问题，并统一多分组搜索结果的网格导航逻辑
 
 ## 优化 (Optimize)
 
@@ -46,6 +52,8 @@
 - 优化 macOS 超级面板唤醒复制流程
 - 推送到搜索选项默认关闭
 - 移除网页快开内置入口
+- 优化更新窗口的下载、安装和失败状态展示，新增下载进度、速度及失败重试交互
+- 优化终端启动的路径与参数转义，避免自定义路径或命令中的特殊字符导致启动失败
 
 ## 重构 (Refactor)
 
@@ -56,6 +64,8 @@
 - 抽取命令上下文匹配公共逻辑（PR [#546](../../pull/546)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
 - 优化指令操作 composable，并修复取消固定失效问题（PR [#567](../../pull/567)，感谢 [@Particaly](https://github.com/Particaly) 的贡献 🎉）
 - 移除冗余内联 cursor 样式，统一由 CSS 类控制
+- 按平台拆分应用更新实现，统一更新检查、下载进度和安装状态接口
+- 拆分主进程启动流程及首次运行数据导入逻辑，降低启动模块耦合
 
 ## 其他 (Chore)
 
@@ -65,5 +75,7 @@
 - 移除 sharp 相关 API
 - 新增同步实现文档、Provider 开发文档和示例插件
 - 新增云同步、Provider、命令上下文、存储 3.0、Windows 扫描等测试覆盖
+- GitHub Actions 新增是否发布到 GitHub Release 的可配置选项
+- 新增终端启动、Windows 安装兼容性、版本比较、macOS 窗口激活和搜索方向导航等测试覆盖
 
 ---
