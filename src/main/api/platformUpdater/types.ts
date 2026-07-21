@@ -5,6 +5,7 @@ export interface PlatformUpdateInfo {
   changelog: string
   releaseNotes?: string
   downloadUrl?: string
+  manualDownloadRequired?: boolean
   migrationRequired?: boolean
   releaseUrl?: string
 }

@@ -33,7 +33,7 @@
       <div class="footer-actions">
         <button class="btn cancel" :disabled="isBusy" @click="closeWindow">稍后更新</button>
         <button class="btn confirm" :disabled="isBusy || !updateInfo" @click="startUpdate">
-          {{ primaryButtonText }}
+          {{ updateInfo?.manualDownloadRequired ? '前往下载' : primaryButtonText }}
         </button>
       </div>
     </div>
@@ -50,6 +50,8 @@ interface UpdateInfo {
   changelog: string
   releaseNotes?: string
   downloadUrl?: string
+  manualDownloadRequired?: boolean
+  releaseUrl?: string
 }
 
 interface DownloadProgress {
@@ -100,11 +102,27 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/**
+ * 执行当前更新操作，便携版仅打开下载页面，安装版进入下载和安装流程。
+ * @returns 操作处理完成后结束的 Promise。
+ */
 const startUpdate = async (): Promise<void> => {
   if (isBusy.value || !updateInfo.value) return
 
   updateError.value = ''
   try {
+    // 便携版不进入下载状态，主进程只负责打开对应 Release 页面。
+    if (updateInfo.value.manualDownloadRequired) {
+      const result = await window.ztools.updater.startUpdate()
+      if (!result.success) {
+        updateError.value = result.error || '打开下载页面失败'
+        status.value = 'error'
+      } else {
+        closeWindow()
+      }
+      return
+    }
+
     if (status.value === 'downloaded') {
       status.value = 'installing'
       const result = await window.ztools.updater.installDownloadedUpdate()

@@ -90,7 +90,7 @@ export async function getMacInstallCompatibility(): Promise<MacInstallCompatibil
     installInfo = null
   }
 
-  // 仅接受当前构建配置对应的 GitHub Release 更新源，避免错误源触发整包替换。
+  // 仅接受当前公开 GitHub Release 更新源，避免错误源触发整包替换。
   try {
     const updateConfig = yaml.parse(await fs.readFile(updateConfigPath, 'utf8'))
     hasUpdateConfig =

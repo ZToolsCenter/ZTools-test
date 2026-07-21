@@ -20,11 +20,30 @@ export interface WindowsInstallInfo {
 
 export interface WindowsInstallCompatibility {
   compatible: boolean
+  portable: boolean
   migrationRequired: boolean
   reasons: string[]
   installInfo?: WindowsInstallInfo
 }
 
+/**
+ * 生成指定 Windows 版本对应的 GitHub Release 下载页面地址。
+ * @param version 检查更新返回的目标版本号。
+ * @returns 指定版本的 Release 页面地址；版本为空时返回最新正式版页面。
+ */
+export function getWindowsReleaseUrl(version?: string): string {
+  if (!version) return WINDOWS_RELEASE_URL
+  return `https://github.com/ZToolsCenter/ZTools-test/releases/tag/v${encodeURIComponent(version)}`
+}
+
+/**
+ * 判断 Windows 应用是否具备 NSIS 自动更新条件，或是否为可检查更新的新版便携包。
+ * @param runtimeElectronVersion 当前运行时 Electron 版本。
+ * @param installInfo 完整打包阶段写入的安装信息。
+ * @param hasUpdateConfig 是否存在有效的 electron-updater 配置。
+ * @param hasNsisInstallMarker 是否执行过当前版本的 NSIS 安装程序。
+ * @returns Windows 安装类型及其更新兼容性结果。
+ */
 export function validateWindowsInstall(
   runtimeElectronVersion: string,
   installInfo: WindowsInstallInfo | null,
@@ -51,19 +70,32 @@ export function validateWindowsInstall(
   }
 
   if (!hasUpdateConfig) reasons.push('缺少 electron-updater 配置')
-  if (!hasNsisInstallMarker) reasons.push('当前不是 NSIS 完整安装版')
+
+  // 新版 ZIP 包具备检查更新所需配置，仅缺少由 NSIS 安装阶段写入的标记。
+  const portable = !hasNsisInstallMarker && reasons.length === 0
+  if (!hasNsisInstallMarker && !portable) reasons.push('当前不是 NSIS 完整安装版')
 
   return {
-    compatible: reasons.length === 0,
-    migrationRequired: reasons.length > 0,
+    compatible: !portable && reasons.length === 0,
+    portable,
+    migrationRequired: !portable && reasons.length > 0,
     reasons,
     installInfo: installInfo ?? undefined
   }
 }
 
+/**
+ * 读取当前 Windows 应用的安装标记与更新配置并执行兼容校验。
+ * @returns Windows 安装类型及其更新兼容性结果。
+ */
 export async function getWindowsInstallCompatibility(): Promise<WindowsInstallCompatibility> {
   if (process.platform !== 'win32' || !app.isPackaged) {
-    return { compatible: false, migrationRequired: false, reasons: ['当前不是 Windows 安装版'] }
+    return {
+      compatible: false,
+      portable: false,
+      migrationRequired: false,
+      reasons: ['当前不是 Windows 安装版']
+    }
   }
 
   const installInfoPath = path.join(process.resourcesPath, WINDOWS_INSTALL_INFO_FILE)

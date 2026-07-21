@@ -1,6 +1,7 @@
 import { app, dialog, shell } from 'electron'
 import type { ElectronUpdaterService } from '../electronUpdater'
 import {
+  getWindowsReleaseUrl,
   getWindowsInstallCompatibility,
   WINDOWS_RELEASE_URL,
   type WindowsInstallCompatibility
@@ -20,6 +21,11 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
   private compatibility: WindowsInstallCompatibility | null = null
   private migrationPromptShown = false
 
+  /**
+   * 创建 Windows 平台更新适配器。
+   * @param callbacks 更新生命周期回调。
+   * @returns 创建的 Windows 更新适配器实例。
+   */
   constructor(private readonly callbacks: PlatformUpdaterCallbacks) {}
 
   /**
@@ -33,13 +39,17 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
       await this.showMigrationPrompt()
       return
     }
-    if (!this.compatibility.compatible) return
+    if (!this.compatibility.compatible && !this.compatibility.portable) return
 
-    // 兼容性通过后再注册 electron-updater 事件。
+    // 安装版使用完整能力，便携版仅复用 electron-updater 的版本检查能力。
     const { ElectronUpdaterService } = await import('../electronUpdater')
     this.updater = new ElectronUpdaterService(this.callbacks)
   }
 
+  /**
+   * 向 legacy Windows 安装展示一次完整安装迁移提示。
+   * @returns 提示处理完成后结束的 Promise。
+   */
   private async showMigrationPrompt(): Promise<void> {
     if (this.migrationPromptShown) return
     this.migrationPromptShown = true
@@ -59,8 +69,30 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
     if (result.response === 0) await shell.openExternal(WINDOWS_RELEASE_URL)
   }
 
+  /**
+   * 检查 Windows 更新，并为便携版标记手动下载行为。
+   * @param downloadWhenAvailable 安装版发现更新后是否立即下载；便携版始终忽略该参数。
+   * @returns 更新检查或迁移结果。
+   */
   public async checkForUpdates(downloadWhenAvailable: boolean): Promise<PlatformUpdateResult> {
-    if (this.updater) return this.updater.checkForUpdates(downloadWhenAvailable)
+    if (this.updater) {
+      const result = await this.updater.checkForUpdates(
+        this.compatibility?.portable ? false : downloadWhenAvailable
+      )
+
+      // 便携版只展示可用版本和发布说明，下载与替换由用户在 Release 页面完成。
+      if (this.compatibility?.portable && result.updateInfo) {
+        return {
+          ...result,
+          updateInfo: {
+            ...result.updateInfo,
+            manualDownloadRequired: true,
+            releaseUrl: getWindowsReleaseUrl(result.updateInfo.version)
+          }
+        }
+      }
+      return result
+    }
 
     if (this.compatibility?.migrationRequired) {
       return {
@@ -77,18 +109,38 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
     return { success: true, status: 'not-available', hasUpdate: false }
   }
 
+  /**
+   * 启动 Windows 更新，便携版改为打开手动下载页面。
+   * @param updateInfo 当前可用更新信息。
+   * @returns 更新启动或下载页面打开结果。
+   */
   public async startUpdate(updateInfo?: PlatformUpdateInfo): Promise<PlatformUpdateActionResult> {
+    if (this.compatibility?.portable) {
+      await shell.openExternal(updateInfo?.releaseUrl || WINDOWS_RELEASE_URL)
+      return { success: true }
+    }
     if (this.updater) return this.updater.downloadAndInstall()
 
     await shell.openExternal(updateInfo?.releaseUrl || WINDOWS_RELEASE_URL)
     return { success: true, migrationRequired: true }
   }
 
+  /**
+   * 安装已经下载完成的 Windows 更新。
+   * @returns 安装启动结果；便携版始终返回不支持安装。
+   */
   public installDownloadedUpdate(): PlatformUpdateActionResult {
+    if (this.compatibility?.portable) {
+      return { success: false, error: 'Windows 便携版不支持应用内安装更新' }
+    }
     if (this.updater) return this.updater.installDownloadedUpdate()
     return { success: false, error: '当前安装需要完整版本迁移' }
   }
 
+  /**
+   * 获取 Windows 更新下载状态。
+   * @returns 当前下载状态。
+   */
   public getDownloadStatus(): PlatformDownloadStatus {
     if (this.updater) return this.updater.getDownloadStatus()
     return {
@@ -97,6 +149,10 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
     }
   }
 
+  /**
+   * 清理 Windows 更新适配器持有的资源。
+   * @returns 无返回值。
+   */
   public cleanup(): void {
     return
   }
