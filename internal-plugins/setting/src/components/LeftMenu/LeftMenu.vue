@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import defaultAvatar from '@/assets/image/default.png'
-import { AccountLoginDialog, BaseDialog, useToast } from '@/components'
+import { AccountLoginDialog, useToast } from '@/components'
 import {
   ACCOUNT_CHANGED_EVENT,
   ONLINE_SYNC_SERVER_URL,
@@ -22,20 +22,9 @@ const username = ref('')
 const nickname = ref('')
 const avatar = ref(defaultAvatar)
 const loginVisible = ref(false)
-const profileVisible = ref(false)
 const loggingIn = ref(false)
-const loadingStats = ref(false)
 const loginUsername = ref('')
-const editingNickname = ref(false)
-const nicknameInput = ref('')
-const updatingNickname = ref(false)
 let accountLoadVersion = 0
-const stats = ref<{
-  documentCount: number
-  attachmentCount: number
-  storageBytes: number
-  monthlyTraffic: number
-} | null>(null)
 
 interface AccountProfileCache {
   uid: string
@@ -46,9 +35,14 @@ interface AccountProfileCache {
 
 const displayName = computed(() => nickname.value || username.value || 'ZTools 用户')
 
-// 设置激活菜单
-const setActiveMenu = ({ name }: MenuRouterItemType): void => {
-  router.replace({ name })
+/**
+ * 切换右侧设置页面。
+ * @param item 要切换到的菜单路由项
+ * @returns 无返回值
+ */
+const setActiveMenu = (item: MenuRouterItemType): void => {
+  // 菜单导航直接替换右侧路由内容。
+  router.replace({ name: item.name })
 }
 
 // 自动加载路由
@@ -91,7 +85,6 @@ async function loadAccount(): Promise<void> {
       loggedIn.value = true
       applyProfile(cachedProfile, uid)
       void refreshProfile(uid, version)
-      void loadCloudStats()
     } else {
       clearAccountState()
     }
@@ -143,12 +136,19 @@ function applyProfile(
   avatar.value = profile?.avatarUrl || defaultAvatar
 }
 
+/**
+ * 清理当前账号展示状态，并在当前页面失效时回到通用设置。
+ * @returns 无返回值
+ */
 function clearAccountState(): void {
+  // 登录态失效后离开账号页面，避免继续展示过期账号信息。
+  if (route.name === 'Account') {
+    void router.replace({ name: 'GeneralSetting' })
+  }
   loggedIn.value = false
   username.value = ''
   nickname.value = ''
   avatar.value = defaultAvatar
-  stats.value = null
 }
 
 async function refreshProfile(
@@ -174,30 +174,16 @@ async function refreshProfile(
   }
 }
 
-async function loadCloudStats(): Promise<void> {
-  loadingStats.value = true
-  try {
-    const result = await window.ztools.internal.syncGetAccountStats()
-    if (result.success && result.stats) {
-      stats.value = {
-        documentCount: result.stats.documentCount || 0,
-        attachmentCount: result.stats.attachmentCount || 0,
-        storageBytes: result.stats.storageBytes || 0,
-        monthlyTraffic: result.stats.monthlyTraffic || 0
-      }
-    } else {
-      stats.value = null
-    }
-  } finally {
-    loadingStats.value = false
-  }
-}
-
+/**
+ * 根据当前登录状态打开个人中心路由或登录对话框。
+ * @returns 无返回值
+ */
 function openAccount(): void {
   if (loggedIn.value) {
-    profileVisible.value = true
-    void loadCloudStats()
+    // 已登录账号直接切换右侧路由内容，不创建覆盖层。
+    void router.replace({ name: 'Account' })
   } else {
+    // 未登录时仍需通过对话框完成账号认证。
     loginVisible.value = true
   }
 }
@@ -258,10 +244,7 @@ async function handleGithubLoginSuccess(data: {
     // 触发账号变更事件
     notifyAccountChanged()
 
-    // 如果是新用户，提示导入本机数据
-    if (data.isNew) {
-      await promptDefaultDataImportAfterLogin({ confirm, success, error })
-    }
+    await promptDefaultDataImportAfterLogin({ confirm, success, error })
 
     // 加载账号信息
     await loadAccount()
@@ -269,115 +252,6 @@ async function handleGithubLoginSuccess(data: {
     console.error('[GitHub Login] 保存配置失败:', err)
     error(err?.message || 'GitHub 登录失败')
   }
-}
-
-async function changeAvatar(): Promise<void> {
-  const result = await window.ztools.internal.selectImageFile()
-  if (!result.success || !result.path) {
-    if (result.error) error(result.error)
-    return
-  }
-  const uploaded = await window.ztools.internal.syncUploadAccountAvatar(result.path)
-  if (!uploaded.success || !uploaded.profile) {
-    error(uploaded.error || '头像上传失败')
-    return
-  }
-  const profile = {
-    uid: uploaded.profile.uid || username.value,
-    nickname: uploaded.profile.nickname || nickname.value,
-    avatarUrl: uploaded.profile.avatarUrl || '',
-    updatedAt: Date.now()
-  }
-  applyProfile(profile, username.value)
-  await writeCachedProfile(profile)
-  notifyAccountChanged()
-  success('账号头像已更新')
-}
-
-async function logout(): Promise<void> {
-  try {
-    await window.ztools.internal.syncStopAutoSync()
-    await window.ztools.internal.syncSaveConfig({
-      enabled: false,
-      serverUrl: ONLINE_SYNC_SERVER_URL,
-      token: '',
-      refreshToken: '',
-      syncInterval: 30,
-      username: ''
-    })
-    accountLoadVersion += 1
-    clearAccountState()
-    profileVisible.value = false
-    success('已退出登录')
-    notifyAccountChanged()
-  } catch (err: any) {
-    error(err?.message || '退出登录失败')
-  }
-}
-
-function startEditNickname(): void {
-  nicknameInput.value = nickname.value || username.value
-  editingNickname.value = true
-}
-
-function cancelEditNickname(): void {
-  editingNickname.value = false
-  nicknameInput.value = ''
-}
-
-async function saveNickname(): Promise<void> {
-  const newNickname = nicknameInput.value.trim()
-  if (!newNickname) {
-    warning('昵称不能为空')
-    return
-  }
-
-  if (newNickname === nickname.value) {
-    editingNickname.value = false
-    return
-  }
-
-  try {
-    updatingNickname.value = true
-    const config = await window.ztools.internal.syncGetConfig()
-    if (!config.success || !config.config?.token) {
-      error('未登录，无法修改昵称')
-      return
-    }
-
-    const result = await window.ztools.internal.syncUpdateNickname({
-      serverUrl: config.config.serverUrl,
-      token: config.config.token,
-      nickname: newNickname
-    })
-
-    if (result.success && result.profile) {
-      const profile = {
-        uid: result.profile.uid || username.value,
-        nickname: result.profile.nickname || newNickname,
-        avatarUrl: result.profile.avatarUrl || avatar.value,
-        updatedAt: Date.now()
-      }
-      applyProfile(profile, username.value)
-      await writeCachedProfile(profile)
-      editingNickname.value = false
-      success('昵称已更新')
-    } else {
-      error(result.error || '更新昵称失败')
-    }
-  } catch (err: any) {
-    error(err?.message || '更新昵称失败')
-  } finally {
-    updatingNickname.value = false
-  }
-}
-
-function formatBytes(value?: number): string {
-  const size = Number(value || 0)
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
-  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 </script>
 
@@ -397,7 +271,12 @@ function formatBytes(value?: number): string {
       </div>
     </div>
 
-    <button class="account-dock" type="button" @click="openAccount">
+    <button
+      class="account-dock"
+      :class="{ active: route.name === 'Account' }"
+      type="button"
+      @click="openAccount"
+    >
       <img v-if="loggedIn" class="account-avatar" :src="avatar" alt="" />
       <div v-else class="account-avatar account-placeholder">
         <div class="i-z-cloud" />
@@ -415,85 +294,6 @@ function formatBytes(value?: number): string {
       @submit="submitLogin"
       @github-login-success="handleGithubLoginSuccess"
     />
-
-    <BaseDialog v-model:visible="profileVisible" title="个人中心" max-width="420px">
-      <div class="profile-dialog">
-        <div class="profile-header">
-          <button class="profile-avatar-btn" type="button" @click="changeAvatar">
-            <img class="profile-avatar" :src="avatar" alt="" />
-            <span>修改头像</span>
-          </button>
-          <div>
-            <div class="profile-name">{{ displayName }}</div>
-            <div class="profile-subtitle">ZTools 云同步账号</div>
-          </div>
-        </div>
-
-        <div class="profile-info">
-          <div class="info-item">
-            <span class="info-label">用户名</span>
-            <span class="info-value">{{ username }}</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">昵称</span>
-            <div v-if="!editingNickname" class="info-value-with-action">
-              <span class="info-value">{{ nickname || username }}</span>
-              <button type="button" class="btn-link" @click="startEditNickname">修改</button>
-            </div>
-            <div v-else class="nickname-edit">
-              <input
-                v-model="nicknameInput"
-                type="text"
-                placeholder="输入昵称"
-                maxlength="50"
-                @keyup.enter="saveNickname"
-                @keyup.esc="cancelEditNickname"
-              />
-              <button
-                type="button"
-                class="btn-primary btn-sm"
-                :disabled="updatingNickname"
-                @click="saveNickname"
-              >
-                {{ updatingNickname ? '保存中...' : '保存' }}
-              </button>
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                :disabled="updatingNickname"
-                @click="cancelEditNickname"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-item">
-            <span>云空间占用</span>
-            <strong>{{ loadingStats ? '加载中' : formatBytes(stats?.storageBytes) }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>文档数量</span>
-            <strong>{{ stats?.documentCount || 0 }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>附件数量</span>
-            <strong>{{ stats?.attachmentCount || 0 }}</strong>
-          </div>
-          <div class="stat-item">
-            <span>本月流量</span>
-            <strong>{{ formatBytes(stats?.monthlyTraffic) }}</strong>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <button type="button" class="btn-danger" @click="logout">退出登录</button>
-        <button type="button" class="btn-secondary" @click="profileVisible = false">关闭</button>
-      </template>
-    </BaseDialog>
   </div>
 </template>
 
@@ -563,8 +363,12 @@ function formatBytes(value?: number): string {
   border-color: color-mix(in srgb, var(--primary-color) 35%, var(--divider-color));
 }
 
-.account-avatar,
-.profile-avatar {
+.account-dock.active {
+  background: var(--active-bg);
+  color: var(--primary-color);
+}
+
+.account-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -599,182 +403,5 @@ function formatBytes(value?: number): string {
   white-space: nowrap;
   color: var(--text-secondary);
   font-size: 12px;
-}
-
-.profile-dialog {
-  display: grid;
-  gap: 14px;
-}
-
-.profile-name {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.btn-secondary,
-.btn-danger {
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  padding: 8px 14px;
-}
-
-.btn-secondary {
-  background: #edf7f3;
-  color: #24332d;
-}
-
-.btn-danger {
-  margin-right: auto;
-  background: #fdecef;
-  color: #d03050;
-}
-
-.profile-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.profile-avatar-btn {
-  display: grid;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  color: var(--primary-color);
-  cursor: pointer;
-  padding: 0;
-  text-align: center;
-  font-size: 12px;
-}
-
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-}
-
-.profile-subtitle {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.profile-info {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-}
-
-.info-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.info-label {
-  color: var(--text-secondary);
-  font-size: 13px;
-  flex-shrink: 0;
-}
-
-.info-value {
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.info-value-with-action {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--primary-color);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0;
-}
-
-.btn-link:hover {
-  text-decoration: underline;
-}
-
-.nickname-edit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-}
-
-.nickname-edit input {
-  flex: 1;
-  border: 1px solid var(--divider-color);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 13px;
-  outline: none;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.nickname-edit input:focus {
-  border-color: var(--primary-color);
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 13px;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.btn-primary.btn-sm {
-  background: var(--primary-color);
-  color: white;
-}
-
-.btn-primary.btn-sm:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-secondary.btn-sm {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.btn-secondary.btn-sm:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.stat-item {
-  display: grid;
-  gap: 4px;
-  border: 1px solid var(--divider-color);
-  border-radius: 8px;
-  padding: 10px;
-}
-
-.stat-item span {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.stat-item strong {
-  font-size: 16px;
 }
 </style>

@@ -31,10 +31,20 @@
             <span class="mode-description">只迁移通用设置、插件安装与私有数据、AI 模型。</span>
           </span>
         </label>
+
+        <label class="mode-option" :class="{ selected: mode === 'fresh' }">
+          <input v-model="mode" type="radio" value="fresh" :disabled="isImporting" />
+          <span class="mode-copy">
+            <span class="mode-title">全新开始</span>
+            <span class="mode-description">不迁移旧版本数据，使用全新的 ZTools 3.0 数据。</span>
+          </span>
+        </label>
       </div>
 
       <div class="migration-details">
-        <div class="details-title">{{ mode === 'full' ? '完整迁移内容' : '精简迁移内容' }}</div>
+        <div class="details-title">
+          {{ mode === 'full' ? '完整迁移内容' : mode === 'compact' ? '精简迁移内容' : '全新开始' }}
+        </div>
         <ul v-if="mode === 'full'">
           <li>通用设置、插件安装状态、插件文件与私有数据、AI 模型</li>
           <li>固定指令、超级面板布局、本地启动项、快捷键和指令别名</li>
@@ -42,20 +52,25 @@
           <li>插件自动启动、自动分离、退出关闭、mainPush 和窗口尺寸</li>
           <li>开发插件项目注册表和 MCP 插件权限</li>
         </ul>
-        <ul v-else>
+        <ul v-else-if="mode === 'compact'">
           <li>通用设置与界面偏好</li>
           <li>插件安装清单、禁用状态、插件文件、私有数据和附件</li>
           <li>AI 模型配置</li>
         </ul>
-        <p class="excluded">不迁移同步账号、服务密钥、可重建缓存和浏览器会话。旧数据不会被删除。</p>
+        <ul v-else>
+          <li>不迁移任何设置、插件、私有数据、快捷键和使用记录</li>
+          <li>旧版本数据继续保留，可在需要时手动处理</li>
+        </ul>
+        <p v-if="mode !== 'fresh'" class="excluded">
+          不迁移同步账号、服务密钥、可重建缓存和浏览器会话。旧数据不会被删除。
+        </p>
       </div>
     </main>
 
     <footer class="footer">
-      <button class="btn cancel" :disabled="isImporting" @click="chooseFresh">全新开始</button>
-      <button class="btn confirm" :disabled="isImporting" @click="chooseImport">
+      <button class="btn confirm" :disabled="isImporting" @click="confirmChoice">
         <span v-if="isImporting" class="loading-spinner"></span>
-        <span>{{ isImporting ? '导入中...' : '导入旧数据' }}</span>
+        <span>确定</span>
       </button>
     </footer>
   </div>
@@ -66,8 +81,12 @@ import { onMounted, ref } from 'vue'
 import logo from '../../assets/logo.png'
 
 const isImporting = ref(false)
-const mode = ref<'full' | 'compact'>('full')
+const mode = ref<'full' | 'compact' | 'fresh'>('full')
 
+/**
+ * 等待浏览器完成两帧渲染，使提交状态在执行迁移前可见。
+ * @returns 两帧渲染完成后结束的 Promise
+ */
 function waitNextFrame(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => {
@@ -76,23 +95,36 @@ function waitNextFrame(): Promise<void> {
   })
 }
 
-async function chooseImport(): Promise<void> {
+/**
+ * 根据当前选项确认导入旧数据或全新开始。
+ * @returns 选择提交完成后结束的 Promise
+ */
+async function confirmChoice(): Promise<void> {
   if (isImporting.value) return
+
+  // 先锁定选项和确认按钮，避免重复提交迁移决定。
   isImporting.value = true
   await waitNextFrame()
-  window.electron?.ipcRenderer.send('legacy-import:choose', { action: 'import', mode: mode.value })
+
+  // 全新开始沿用主进程已有的 fresh 分支，其余选项提交对应迁移模式。
+  if (mode.value === 'fresh') {
+    window.electron?.ipcRenderer.send('legacy-import:choose', { action: 'fresh' })
+    return
+  }
+  window.electron?.ipcRenderer.send('legacy-import:choose', {
+    action: 'import',
+    mode: mode.value
+  })
 }
 
-function chooseFresh(): void {
-  if (isImporting.value) return
-  window.electron?.ipcRenderer.send('legacy-import:choose', { action: 'fresh' })
-}
-
+/**
+ * 支持按 Enter 确认当前选择。
+ * @param event 当前键盘事件
+ * @returns 无返回值
+ */
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Enter') {
-    chooseImport()
-  } else if (event.key === 'Escape') {
-    chooseFresh()
+    void confirmChoice()
   }
 }
 
@@ -109,8 +141,8 @@ onMounted(() => {
 
 .mode-options {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   margin-top: 14px;
 }
 

@@ -176,6 +176,12 @@ export class SystemAPI {
     }
   }
 
+  /**
+   * 根据渲染进程提供的菜单描述构建并显示原生右键菜单。
+   * @param event 触发菜单的 IPC 事件
+   * @param menuItems 菜单项描述列表
+   * @returns 菜单创建并展示后结束的 Promise
+   */
   private async showContextMenu(event: Electron.IpcMainInvokeEvent, menuItems: any): Promise<void> {
     if (!this.mainWindow) return
 
@@ -184,7 +190,8 @@ export class SystemAPI {
     const buildTemplate = (items: any[], senderWebContents: Electron.WebContents): any[] => {
       return items.map((item: any) => {
         const menuItem: any = {
-          label: item.label
+          label: item.label,
+          enabled: item.enabled !== false
         }
 
         if (item.submenu) {

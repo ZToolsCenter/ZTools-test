@@ -40,12 +40,12 @@ English | [简体中文](./README.md)
 <table>
   <tr>
     <td width="240" align="center">
-      <a href="https://ztest.ai">
+      <a href="https://ztest.ai/?from=ztools">
         <img src="./.github/assets/sponsors/ztest.png" alt="Ztest" width="220">
       </a>
     </td>
     <td>
-      Thanks to <a href="https://ztest.ai">Ztest</a> for sponsoring this project! Ztest.ai is a model verification platform for AI API relay services that makes all test result data publicly available. Its 23 probes cover six dimensions: protocol, identity, capability, content integrity, security, and performance. By cross-validating results, it identifies model spoofing and degradation. As an independent third-party verification platform, Ztest monitors the model authenticity, response quality, and service availability of AI API relay services in real time.
+      Thanks to <a href="https://ztest.ai/?from=ztools">Ztest</a> for sponsoring this project! Ztest.ai is a model verification platform for AI API relay services that makes all test result data publicly available. Its 23 probes cover six dimensions: protocol, identity, capability, content integrity, security, and performance. By cross-validating results, it identifies model spoofing and degradation. As an independent third-party verification platform, Ztest monitors the model authenticity, response quality, and service availability of AI API relay services in real time.
     </td>
   </tr>
 </table>
@@ -251,14 +251,6 @@ When submitting an issue, please include:
 ## 📄 License
 
 This project is licensed under the [MIT License](./LICENSE).
-
-## 💖 Sponsor
-
-If ZTools has been helpful to you, consider sponsoring the project on Afdian to support continued development:
-
-<a href="https://afdian.com/a/ZTools">
-  <img src="https://img.shields.io/badge/Afdian-Sponsor-946ce6?style=for-the-badge" alt="Afdian">
-</a>
 
 ## 💝 Acknowledgments
 

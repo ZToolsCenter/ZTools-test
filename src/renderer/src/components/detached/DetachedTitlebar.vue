@@ -139,9 +139,15 @@ const searchInputRef = ref<HTMLInputElement | null>(null)
 const acrylicLightOpacity = ref(78) // 亚克力明亮模式透明度（默认 78%）
 const acrylicDarkOpacity = ref(50) // 亚克力暗黑模式透明度（默认 50%）
 const aiRequestStatus = ref<'idle' | 'sending' | 'receiving'>('idle') // AI 请求状态
-const primaryColor = ref('blue')
+const primaryColor = ref('green')
 const customColor = ref('#db2777')
 
+/**
+ * 获取指定主题色在当前明暗模式下对应的颜色值。
+ * @param colorName 主题色名称
+ * @param isDark 当前是否为暗色模式
+ * @returns 可用于 CSS 的十六进制颜色值
+ */
 function getThemeColor(colorName: string, isDark: boolean): string {
   const colors: Record<string, { light: string; dark: string }> = {
     blue: { light: '#0284c7', dark: '#38bdf8' },
@@ -155,7 +161,8 @@ function getThemeColor(colorName: string, isDark: boolean): string {
   if (color) {
     return isDark ? color.dark : color.light
   }
-  return isDark ? '#38bdf8' : '#0284c7' // fallback blue
+  // 非法或未知名称统一回退到产品默认的绿色。
+  return isDark ? '#34d399' : '#059669'
 }
 
 function applyPrimaryColor(): void {
@@ -658,7 +665,7 @@ body {
   transform: translate(-50%, -50%);
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary-color, #3b82f6);
+  color: var(--primary-color, #059669);
   z-index: 3;
   letter-spacing: 0.5px;
 }
@@ -681,7 +688,7 @@ body {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 2px solid var(--primary-color, #3b82f6);
+  border: 2px solid var(--primary-color, #059669);
   position: absolute;
   left: 0;
   top: 0;
@@ -722,7 +729,7 @@ body {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 2px solid var(--primary-color, #3b82f6);
+  border: 2px solid var(--primary-color, #059669);
   position: absolute;
   left: 0;
   top: 0;
@@ -815,7 +822,7 @@ body {
 
 .toolbar-btn.active {
   background: var(--hover-bg);
-  color: #0284c7; /* 固定使用默认蓝色 */
+  color: var(--primary-color);
 }
 
 /* Windows 窗口控制按钮 */

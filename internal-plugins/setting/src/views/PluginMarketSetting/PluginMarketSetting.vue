@@ -283,6 +283,27 @@ async function handleOpenPlugin(plugin: Plugin): Promise<void> {
   }
 }
 
+/**
+ * 在系统文件管理器中显示已安装插件的位置。
+ * @param plugin 要显示目录的插件信息
+ * @returns 完成文件管理器调用后结束的 Promise
+ */
+async function handleOpenFolder(plugin: Plugin): Promise<void> {
+  // 市场详情也可能展示尚未安装的插件，先阻止无效路径调用。
+  if (!plugin.path) {
+    error('无法打开插件目录: 路径未知')
+    return
+  }
+
+  try {
+    // 交由主进程按当前平台打开并选中插件文件。
+    await window.ztools.internal.revealInFinder(plugin.path)
+  } catch (err: unknown) {
+    console.error('打开插件目录失败:', err)
+    error(`打开插件目录失败: ${err instanceof Error ? err.message : '未知错误'}`)
+  }
+}
+
 function canUpgrade(plugin: Plugin): boolean {
   if (!plugin.installed || !plugin.localVersion || !plugin.version) return false
   return compareVersions(plugin.localVersion, plugin.version) < 0
@@ -748,6 +769,7 @@ onUnmounted(() => {
         :download-state="downloadStates[selectedPlugin.name]"
         @back="closePluginDetail"
         @open="handleOpenPlugin(selectedPlugin)"
+        @open-folder="handleOpenFolder(selectedPlugin)"
         @download="downloadPlugin(selectedPlugin)"
         @upgrade="handleUpgradePlugin(selectedPlugin)"
         @uninstall="handleUninstallPlugin(selectedPlugin, $event)"

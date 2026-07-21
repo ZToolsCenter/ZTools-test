@@ -1,3 +1,5 @@
+/// <reference types="vite-svg-loader" />
+
 // Ambient type declarations for renderer, so TS knows window.ztools
 
 import type { CommonKeyboardModifier } from '@renderer/utils/convertKeyboardEvent'
@@ -277,6 +279,7 @@ declare global {
         }>
       }
       onUpdateAvailable: (callback: (data: { version: string; changelog: string }) => void) => void
+      onAutoCheckUpdateChanged: (callback: (enabled: boolean) => void) => () => void
       onUpdateDownloaded: (callback: (data: { version: string; changelog: string }) => void) => void
       onUpdateDownloadStart: (callback: (data: { version: string }) => void) => void
       onUpdateDownloadFailed: (callback: (data: { error: string }) => void) => void

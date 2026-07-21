@@ -206,8 +206,35 @@ interface HistoryItem extends Command {
   useCount: number // 使用次数
 }
 
+interface RecommendationPin {
+  path: string
+  featureCode?: string
+  name: string
+  pluginName?: string
+  type: CommandType
+}
+
 const HISTORY_DOC_ID = 'command-history'
 const PINNED_DOC_ID = 'pinned-commands'
+const RECOMMENDATION_PINS_DOC_ID = 'recommendation-pinned'
+
+/**
+ * 生成匹配推荐的稳定标识，插件路径变化时优先使用插件名和功能代码。
+ * @param command 匹配推荐指令或其持久化记录
+ * @returns 可用于去重、查找和排序的稳定标识
+ */
+export function getRecommendationPinKey(
+  command: Pick<Command, 'path' | 'featureCode' | 'name' | 'pluginName' | 'type'>
+): string {
+  if (command.type === 'plugin') {
+    return JSON.stringify([
+      'plugin',
+      command.pluginName || command.path,
+      command.featureCode || command.name
+    ])
+  }
+  return JSON.stringify([command.type, command.path, command.name])
+}
 
 export const useCommandDataStore = defineStore('commandData', () => {
   // ===== 特殊指令配置表 =====
@@ -279,6 +306,9 @@ export const useCommandDataStore = defineStore('commandData', () => {
   const searchPreference = ref<
     Record<string, { path: string; featureCode?: string; name: string }>
   >({})
+
+  // 匹配推荐置顶序列（只影响推荐区，不影响主搜索框固定列表）
+  const recommendationPins = ref<RecommendationPin[]>([])
 
   // 超级面板固定列表缓存
   const superPanelPinned = ref<any[]>([])
@@ -536,6 +566,159 @@ export const useCommandDataStore = defineStore('commandData', () => {
     }
   }
 
+  /**
+   * 从数据库加载匹配推荐的置顶序列。
+   * @returns 推荐置顶数据加载完成后结束的 Promise
+   */
+  async function loadRecommendationPins(): Promise<void> {
+    try {
+      const data = await window.ztools.dbGet(RECOMMENDATION_PINS_DOC_ID)
+      if (!Array.isArray(data)) {
+        recommendationPins.value = []
+        return
+      }
+
+      // 只接受具备最小身份字段的记录，避免损坏数据影响推荐排序。
+      recommendationPins.value = data.filter(
+        (item): item is RecommendationPin =>
+          typeof item?.path === 'string' &&
+          typeof item?.name === 'string' &&
+          typeof item?.type === 'string'
+      )
+    } catch (error) {
+      console.error('加载匹配推荐置顶数据失败:', error)
+      recommendationPins.value = []
+    }
+  }
+
+  /**
+   * 持久化当前匹配推荐置顶序列。
+   * @returns 推荐置顶数据保存完成后结束的 Promise
+   * @throws 数据库写入失败时抛出原始错误
+   */
+  async function saveRecommendationPins(): Promise<void> {
+    await window.ztools.dbPut(
+      RECOMMENDATION_PINS_DOC_ID,
+      JSON.parse(JSON.stringify(recommendationPins.value))
+    )
+  }
+
+  /**
+   * 查找推荐指令在置顶序列中的位置。
+   * @param command 推荐指令
+   * @returns 推荐置顶索引，未置顶时返回 -1
+   */
+  function getRecommendationPinIndex(command: Command): number {
+    const key = getRecommendationPinKey(command)
+    return recommendationPins.value.findIndex((item) => getRecommendationPinKey(item) === key)
+  }
+
+  /**
+   * 判断推荐指令是否已置顶。
+   * @param command 推荐指令
+   * @returns 是否已置顶
+   */
+  function isRecommendationPinned(command: Command): boolean {
+    return getRecommendationPinIndex(command) >= 0
+  }
+
+  /**
+   * 按用户设置的置顶序列排序推荐结果。
+   * @param commands 当前搜索命中的推荐结果
+   * @returns 置顶推荐排在前面的新数组
+   */
+  function sortRecommendations<T extends Command>(commands: T[]): T[] {
+    const pinnedOrder = new Map(
+      recommendationPins.value.map((item, index) => [getRecommendationPinKey(item), index])
+    )
+
+    return [...commands].sort((a, b) => {
+      const indexA = pinnedOrder.get(getRecommendationPinKey(a))
+      const indexB = pinnedOrder.get(getRecommendationPinKey(b))
+      if (indexA === undefined && indexB === undefined) return 0
+      if (indexA === undefined) return 1
+      if (indexB === undefined) return -1
+      return indexA - indexB
+    })
+  }
+
+  /**
+   * 将推荐指令加入置顶序列末尾。
+   * @param command 推荐指令
+   * @returns 保存完成后结束的 Promise
+   * @throws 数据库写入失败时抛出原始错误
+   */
+  async function pinRecommendation(command: Command): Promise<void> {
+    if (isRecommendationPinned(command)) return
+
+    const previous = recommendationPins.value
+    recommendationPins.value = [
+      ...previous,
+      {
+        path: command.path,
+        featureCode: command.featureCode,
+        name: command.name,
+        pluginName: command.pluginName,
+        type: command.type
+      }
+    ]
+
+    try {
+      await saveRecommendationPins()
+    } catch (error) {
+      // 持久化失败时恢复内存顺序，避免界面显示与数据库不一致。
+      recommendationPins.value = previous
+      throw error
+    }
+  }
+
+  /**
+   * 从置顶序列中移除推荐指令。
+   * @param command 推荐指令
+   * @returns 保存完成后结束的 Promise
+   * @throws 数据库写入失败时抛出原始错误
+   */
+  async function unpinRecommendation(command: Command): Promise<void> {
+    const pinIndex = getRecommendationPinIndex(command)
+    if (pinIndex < 0) return
+
+    const previous = recommendationPins.value
+    recommendationPins.value = previous.filter((_, index) => index !== pinIndex)
+
+    try {
+      await saveRecommendationPins()
+    } catch (error) {
+      // 持久化失败时回滚本地修改，避免下次搜索顺序产生漂移。
+      recommendationPins.value = previous
+      throw error
+    }
+  }
+
+  /**
+   * 将已置顶推荐移动到置顶序列第一位。
+   * @param command 推荐指令
+   * @returns 保存完成后结束的 Promise
+   * @throws 数据库写入失败时抛出原始错误
+   */
+  async function moveRecommendationToFront(command: Command): Promise<void> {
+    const pinIndex = getRecommendationPinIndex(command)
+    if (pinIndex <= 0) return
+
+    const previous = recommendationPins.value
+    const nextOrder = [...previous]
+    const [pin] = nextOrder.splice(pinIndex, 1)
+    nextOrder.unshift(pin)
+    recommendationPins.value = nextOrder
+
+    try {
+      await saveRecommendationPins()
+    } catch (error) {
+      // 持久化失败时回滚本地修改，确保置顶序列仍然可预测。
+      recommendationPins.value = previous
+      throw error
+    }
+  }
+
   // 保存搜索偏好（搜索词 -> 选中的指令）
   async function saveSearchPreference(
     query: string,
@@ -577,6 +760,7 @@ export const useCommandDataStore = defineStore('commandData', () => {
         loadHistoryData(),
         loadPinnedData(),
         loadSearchPreference(),
+        loadRecommendationPins(),
         loadSuperPanelPinnedData()
       ])
 
@@ -1617,6 +1801,14 @@ export const useCommandDataStore = defineStore('commandData', () => {
     getPinnedCommands,
     updatePinnedOrder,
     clearPinned,
+
+    // 匹配推荐置顶方法
+    getRecommendationPinIndex,
+    isRecommendationPinned,
+    sortRecommendations,
+    pinRecommendation,
+    unpinRecommendation,
+    moveRecommendationToFront,
 
     // 超级面板固定方法
     superPanelPinned,

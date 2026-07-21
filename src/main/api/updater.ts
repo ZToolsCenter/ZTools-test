@@ -102,9 +102,18 @@ export class UpdaterAPI {
     console.log('[Updater] 自动检查更新已停止')
   }
 
+  /**
+   * 启用或停止自动检查更新，并将最新开关状态同步给主窗口。
+   * @param enabled 是否启用自动检查更新
+   * @returns 无返回值
+   */
   public setAutoCheck(enabled: boolean): void {
+    // 根据持久化设置切换自动检查任务。
     if (enabled) this.startAutoCheck()
     else this.stopAutoCheck()
+
+    // 通知主窗口立即更新提示可见性，无需等待下次启动重新读取设置。
+    this.sendUpdateEvent('auto-check-update-changed', enabled)
   }
 
   private async autoCheckAndNotify(): Promise<void> {

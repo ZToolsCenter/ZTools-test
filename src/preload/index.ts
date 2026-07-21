@@ -303,6 +303,18 @@ const api = {
   onUpdateAvailable: (callback: (data: { version: string; changelog: string }) => void) => {
     ipcRenderer.on('update-available', (_event, data) => callback(data))
   },
+  /**
+   * 监听自动检查更新开关变化。
+   * @param callback 接收最新开关状态的回调函数
+   * @returns 用于移除当前监听器的清理函数
+   */
+  onAutoCheckUpdateChanged: (callback: (enabled: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, enabled: boolean): void => callback(enabled)
+    ipcRenderer.on('auto-check-update-changed', handler)
+    return (): void => {
+      ipcRenderer.removeListener('auto-check-update-changed', handler)
+    }
+  },
   onUpdateDownloaded: (callback: (data: { version: string; changelog: string }) => void) => {
     ipcRenderer.on('update-downloaded', (_event, data) => callback(data))
   },
@@ -611,6 +623,7 @@ declare global {
       onUpdateSpaceOpenCommand: (callback: (enabled: boolean) => void) => void
       onUpdateShowRecentInSearch: (callback: (showRecentInSearch: boolean) => void) => void
       onUpdateMatchRecommendation: (callback: (showMatchRecommendation: boolean) => void) => void
+      onAutoCheckUpdateChanged: (callback: (enabled: boolean) => void) => () => void
       // 数据库相关（主程序专用，直接操作 ZTOOLS 命名空间）
       dbPut: (key: string, data: any) => Promise<any>
       dbGet: (key: string) => Promise<any>

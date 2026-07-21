@@ -668,9 +668,9 @@ html:not(.os-windows[data-material='mica']):not(.os-windows[data-material='acryl
   --adaptive-icon-hue: 310deg;
 }
 
-/* 默认蓝色主题 */
+/* 未加载主题类名前使用默认绿色主题 */
 :root {
-  --adaptive-icon-hue: 180deg;
+  --adaptive-icon-hue: 100deg;
 }
 
 /* 滚动条样式由 src/main/core/globalStyles.ts 通过 insertCSS 统一注入 */

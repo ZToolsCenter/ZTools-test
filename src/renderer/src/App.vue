@@ -69,6 +69,7 @@ const searchResultsRef = ref<{
   resetSelection: () => void
   resetCollapseState: () => void
 } | null>(null)
+let removeAutoCheckUpdateChangedListener: (() => void) | null = null
 // 粘贴的图片数据
 const pastedImageData = ref<string | null>(null)
 // 粘贴的文件数据
@@ -895,6 +896,11 @@ onMounted(async () => {
     })
   })
 
+  // 设置插件切换自动检查后，立即同步主窗口提示的可见性。
+  removeAutoCheckUpdateChangedListener = window.ztools.onAutoCheckUpdateChanged((enabled) => {
+    windowStore.updateAutoCheckUpdateEnabled(enabled)
+  })
+
   // 监听更新下载开始事件
   window.ztools.onUpdateDownloadStart((data) => {
     console.log('开始下载更新:', data)
@@ -1058,6 +1064,9 @@ onMounted(async () => {
 
 // 清理
 onUnmounted(() => {
+  // 释放支持主动清理的 IPC 监听器，避免重复挂载后收到多次通知。
+  removeAutoCheckUpdateChangedListener?.()
+  removeAutoCheckUpdateChangedListener = null
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>

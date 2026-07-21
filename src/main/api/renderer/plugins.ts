@@ -1,8 +1,8 @@
 import type { PluginManager } from '../../managers/pluginManager'
 import { ipcMain } from 'electron'
-import { promises as fs } from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
+import { removePluginArtifact } from '../../utils/pluginStorage.js'
 import { normalizeIconPath } from '../../common/iconUtils'
 import { isBundledInternalPlugin } from '../../core/internalPlugins'
 import lmdbInstance from '../../core/lmdb/lmdbInstance'
@@ -49,6 +49,12 @@ export class PluginsAPI {
   public installer!: PluginInstallerAPI
   public market!: PluginMarketAPI
 
+  /**
+   * 初始化插件 API 及其依赖，并注册 IPC 处理器。
+   * @param mainWindow 主窗口
+   * @param pluginManager 插件运行管理器
+   * @returns 无返回值
+   */
   public init(mainWindow: Electron.BrowserWindow, pluginManager: PluginManager): void {
     this.mainWindow = mainWindow
     this.pluginManager = pluginManager
@@ -81,15 +87,26 @@ export class PluginsAPI {
       readInstalledPlugins: () => this.readInstalledPlugins(),
       writeInstalledPlugins: (plugins) => this.writeInstalledPlugins(plugins),
       notifyPluginsChanged: () => this.notifyPluginsChanged(),
+      replacePluginPathReferences: (name, oldPath, newPath) =>
+        this.replacePluginPathReferences(name, oldPath, newPath),
       validatePluginConfig: (config, existing) => this.validatePluginConfig(config, existing)
     })
     this.setupIPC()
   }
 
+  /**
+   * 设置插件变化时使用的命令缓存失效回调。
+   * @param invalidator 命令缓存失效函数
+   * @returns 无返回值
+   */
   public setCommandsCacheInvalidator(invalidator: () => void): void {
     this.commandsCacheInvalidator = invalidator
   }
 
+  /**
+   * 注册插件管理相关的主进程 IPC 处理器。
+   * @returns 无返回值
+   */
   private setupIPC(): void {
     ipcMain.handle('get-plugins', () => this.getPlugins())
     ipcMain.handle('get-all-plugins', () => this.getAllPlugins())
@@ -245,27 +262,56 @@ export class PluginsAPI {
     ipcMain.handle('export-all-plugins', () => this.installer.exportAllPlugins())
   }
 
-  // 获取插件列表（过滤掉内置插件，用于插件中心显示）
+  /**
+   * 获取插件中心展示的正式和开发插件列表。
+   * @returns 已过滤内置插件的列表
+   */
   public async getPlugins(): Promise<any[]> {
     const allPlugins = await this.getAllPlugins()
     // 过滤掉所有内置插件（system、setting 等）
     return allPlugins.filter((plugin: any) => !isBundledInternalPlugin(plugin.name))
   }
 
+  /**
+   * 获取禁用插件的当前物理路径，并迁移历史路径标识为稳定插件名。
+   * @returns 禁用插件的当前物理路径列表
+   */
   public getDisabledPlugins(): string[] {
     if (this.disabledPluginPathSet) {
       return [...this.disabledPluginPathSet]
     }
 
     const data = databaseAPI.dbGet(DISABLED_PLUGINS_KEY)
-    const disabledPlugins = Array.isArray(data)
+    const disabledIdentifiers = Array.isArray(data)
       ? data.filter((item): item is string => typeof item === 'string')
       : []
+    const installedPlugins = this.readInstalledPlugins()
+    // 对外仍返回路径，兼容现有的运行时过滤逻辑。
+    const disabledPaths = disabledIdentifiers.map((identifier) => {
+      const plugin = installedPlugins.find(
+        (item: any) => item.name === identifier || item.path === identifier
+      )
+      return plugin?.path || identifier
+    })
 
-    this.disabledPluginPathSet = new Set(disabledPlugins)
-    return disabledPlugins
+    this.disabledPluginPathSet = new Set(disabledPaths)
+    // 持久化数据统一改为插件名，版本化 ASAR 升级后无需迁移禁用标识。
+    const normalizedNames = disabledIdentifiers.map((identifier) => {
+      const plugin = installedPlugins.find(
+        (item: any) => item.name === identifier || item.path === identifier
+      )
+      return plugin?.name || identifier
+    })
+    if (normalizedNames.some((value, index) => value !== disabledIdentifiers[index])) {
+      databaseAPI.dbPut(DISABLED_PLUGINS_KEY, normalizedNames)
+    }
+    return disabledPaths
   }
 
+  /**
+   * 获取禁用插件路径集合的进程内缓存。
+   * @returns 可用于快速路径判断的集合
+   */
   public getDisabledPluginSet(): Set<string> {
     if (!this.disabledPluginPathSet) {
       this.getDisabledPlugins()
@@ -274,10 +320,21 @@ export class PluginsAPI {
     return this.disabledPluginPathSet!
   }
 
+  /**
+   * 判断指定插件路径是否处于禁用状态。
+   * @param pluginPath 插件当前物理路径
+   * @returns 插件是否禁用
+   */
   public isPluginDisabled(pluginPath: string): boolean {
     return this.getDisabledPluginSet().has(pluginPath)
   }
 
+  /**
+   * 启用或禁用正式插件。
+   * @param pluginPath 插件当前物理路径
+   * @param disabled 是否禁用
+   * @returns 更新结果
+   */
   public async setPluginDisabled(
     pluginPath: string,
     disabled: boolean
@@ -308,7 +365,7 @@ export class PluginsAPI {
         disabledPlugins.delete(pluginPath)
       }
       this.disabledPluginPathSet = disabledPlugins
-      databaseAPI.dbPut(DISABLED_PLUGINS_KEY, [...disabledPlugins])
+      this.writeDisabledPluginPaths([...disabledPlugins])
 
       if (disabled && this.pluginManager) {
         this.pluginManager.killPlugin(pluginPath)
@@ -324,7 +381,10 @@ export class PluginsAPI {
     }
   }
 
-  // 获取所有插件列表（包括 system 插件，用于生成搜索指令）
+  /**
+   * 获取包括内置插件在内的全部插件，并解析动态功能和图标。
+   * @returns 完整插件列表
+   */
   public async getAllPlugins(): Promise<any[]> {
     try {
       const data = databaseAPI.dbGet('plugins')
@@ -357,15 +417,102 @@ export class PluginsAPI {
     }
   }
 
+  /**
+   * 读取当前插件注册表。
+   * @returns 插件记录列表；存储值无效时返回空数组
+   */
   private readInstalledPlugins(): any[] {
     const plugins = databaseAPI.dbGet('plugins')
     return Array.isArray(plugins) ? plugins : []
   }
 
+  /**
+   * 覆盖写入插件注册表。
+   * @param plugins 完整插件记录列表
+   * @returns 无返回值
+   */
   private writeInstalledPlugins(plugins: any[]): void {
     databaseAPI.dbPut('plugins', plugins)
   }
 
+  /**
+   * 更新禁用插件路径缓存，并按稳定插件名持久化。
+   * @param paths 禁用插件的当前物理路径列表
+   * @returns 无返回值
+   */
+  private writeDisabledPluginPaths(paths: string[]): void {
+    this.disabledPluginPathSet = new Set(paths)
+    const plugins = this.readInstalledPlugins()
+    const identifiers = paths.map((pluginPath) => {
+      const plugin = plugins.find((item: any) => item.path === pluginPath)
+      return plugin?.name || pluginPath
+    })
+    databaseAPI.dbPut(DISABLED_PLUGINS_KEY, identifiers)
+  }
+
+  /**
+   * 更新升级后仍携带旧物理路径的插件状态。
+   * @param pluginName 稳定插件名
+   * @param oldPath 升级前物理路径
+   * @param newPath 升级后物理路径
+   * @returns 无返回值
+   */
+  private replacePluginPathReferences(pluginName: string, oldPath: string, newPath: string): void {
+    // 先刷新禁用状态的运行时路径缓存。
+    const disabledPaths = this.getDisabledPluginSet()
+    if (disabledPaths.delete(oldPath)) {
+      disabledPaths.add(newPath)
+      this.writeDisabledPluginPaths([...disabledPaths])
+    }
+
+    // 命令历史和普通置顶都是扁平数组，可按 pluginName 统一更新。
+    const updateFlatList = (key: string): void => {
+      const value = databaseAPI.dbGet(key)
+      if (!Array.isArray(value)) return
+      let changed = false
+      const next = value.map((item: any) => {
+        const belongsToPlugin =
+          item?.pluginName === pluginName ||
+          (item?.type === 'plugin' && item?.name === pluginName && item?.path === oldPath)
+        if (!belongsToPlugin || item.path === newPath) return item
+        changed = true
+        return { ...item, path: newPath }
+      })
+      if (changed) databaseAPI.dbPut(key, next)
+    }
+
+    updateFlatList('command-history')
+    updateFlatList('pinned-commands')
+    updateFlatList('command-usage-stats')
+
+    // 超级面板允许文件夹嵌套，需要递归更新其中的插件项。
+    const pinned = databaseAPI.dbGet('super-panel-pinned')
+    if (Array.isArray(pinned)) {
+      let changed = false
+      const updateItem = (item: any): any => {
+        if (item?.isFolder && Array.isArray(item.items)) {
+          const items = item.items.map(updateItem)
+          if (items.some((child: any, index: number) => child !== item.items[index])) {
+            changed = true
+            return { ...item, items }
+          }
+          return item
+        }
+        if (item?.type === 'plugin' && item?.pluginName === pluginName && item.path !== newPath) {
+          changed = true
+          return { ...item, path: newPath }
+        }
+        return item
+      }
+      const nextPinned = pinned.map(updateItem)
+      if (changed) databaseAPI.dbPut('super-panel-pinned', nextPinned)
+    }
+  }
+
+  /**
+   * 使插件相关缓存失效并通知渲染进程刷新。
+   * @returns 无返回值
+   */
   private notifyPluginsChanged(): void {
     this.commandsCacheInvalidator?.()
     this.mainWindow?.webContents.send('plugins-changed')
@@ -463,6 +610,12 @@ export class PluginsAPI {
     return { valid: true }
   }
 
+  /**
+   * 将插件 logo 配置解析为可加载 URL。
+   * @param pluginPath 插件根路径
+   * @param logo plugin.json 中的 logo 值
+   * @returns 可加载 URL；配置无效时返回空字符串
+   */
   private resolvePluginLogo(pluginPath: string, logo: unknown): string {
     if (typeof logo !== 'string' || !logo) return ''
     if (/^(https?:|file:)/.test(logo)) return logo
@@ -473,6 +626,7 @@ export class PluginsAPI {
    * 删除插件
    * @param pluginPath 插件路径
    * @param options 删除选项 当 options.deleteData 显式设置为 false 时，保留插件数据
+   * @returns 删除结果
    */
   public async deletePlugin(pluginPath: string, options: DeletePluginOptions = {}): Promise<any> {
     try {
@@ -488,7 +642,7 @@ export class PluginsAPI {
 
       const pluginInfo = plugins[pluginIndex]
 
-      // ✅ 检查是否为内置插件
+      // 内置插件不允许通过正式插件卸载入口删除。
       if (isBundledInternalPlugin(pluginInfo.name)) {
         return {
           success: false,
@@ -496,6 +650,7 @@ export class PluginsAPI {
         }
       }
 
+      // 先停止运行实例，再移除注册记录和关联状态。
       this.pluginManager?.killPlugin(pluginPath)
 
       plugins.splice(pluginIndex, 1)
@@ -518,17 +673,15 @@ export class PluginsAPI {
 
       // 删除禁用插件标识
       const disabledPlugins = this.getDisabledPluginSet()
-      if (disabledPlugins.delete(pluginPath)) {
-        this.disabledPluginPathSet = disabledPlugins
-        databaseAPI.dbPut(DISABLED_PLUGINS_KEY, [...disabledPlugins])
-      }
+      if (disabledPlugins.delete(pluginPath)) this.writeDisabledPluginPaths([...disabledPlugins])
 
       this.notifyPluginsChanged()
 
       if (!pluginInfo.isDevelopment) {
         try {
-          await fs.rm(pluginPath, { recursive: true, force: true })
-          console.log('[Plugins] 已删除插件目录:', pluginPath)
+          // ASAR 实体会连同 `.asar.unpacked` 一起删除。
+          await removePluginArtifact(pluginInfo)
+          console.log('[Plugins] 已删除插件实体:', pluginPath)
         } catch (error) {
           console.error('[Plugins] 删除插件目录失败:', error)
         }
@@ -543,6 +696,12 @@ export class PluginsAPI {
     }
   }
 
+  /**
+   * 从插件名配置列表中移除指定插件。
+   * @param keys 需要处理的数据库键
+   * @param pluginName 待移除插件名
+   * @returns 无返回值
+   */
   private removePluginNameConfigs(keys: string[], pluginName: string): void {
     for (const key of keys) {
       const current = databaseAPI.dbGet(key)
@@ -554,6 +713,12 @@ export class PluginsAPI {
     }
   }
 
+  /**
+   * 更新插件 mainPush 功能的启用状态。
+   * @param pluginName 插件名
+   * @param enabled 是否启用
+   * @returns 更新结果
+   */
   public async setPluginMainPushEnabled(
     pluginName: string,
     enabled: boolean
@@ -582,7 +747,10 @@ export class PluginsAPI {
     }
   }
 
-  // 获取运行中的插件
+  /**
+   * 获取当前运行中的插件路径。
+   * @returns 运行中的插件路径列表
+   */
   public getRunningPlugins(): string[] {
     if (this.pluginManager) {
       return this.pluginManager.getRunningPlugins()
@@ -590,7 +758,11 @@ export class PluginsAPI {
     return []
   }
 
-  // 终止插件
+  /**
+   * 终止指定路径对应的插件实例。
+   * @param pluginPath 插件物理路径
+   * @returns 终止结果
+   */
   public killPlugin(pluginPath: string): { success: boolean; error?: string } {
     try {
       console.log('[Plugins] 终止插件:', pluginPath)
@@ -609,7 +781,11 @@ export class PluginsAPI {
     }
   }
 
-  // 终止插件并返回搜索页面
+  /**
+   * 终止插件实例并通知窗口返回搜索页面。
+   * @param pluginPath 插件物理路径
+   * @returns 终止结果
+   */
   private killPluginAndReturn(pluginPath: string): { success: boolean; error?: string } {
     try {
       console.log('[Plugins] 终止插件并返回搜索页面:', pluginPath)
@@ -630,7 +806,12 @@ export class PluginsAPI {
     }
   }
 
-  // 获取插件 README.md 内容
+  /**
+   * 获取插件 README 内容。
+   * @param pluginPathOrName 兼容旧调用的插件路径或插件名
+   * @param pluginName 显式插件名
+   * @returns README 查询结果
+   */
   public async getPluginReadme(
     pluginPathOrName: string,
     pluginName?: string
@@ -647,7 +828,11 @@ export class PluginsAPI {
     }
   }
 
-  // 从远程加载插件 README
+  /**
+   * 从插件市场加载 README 内容。
+   * @param pluginName 插件名
+   * @returns README 查询结果
+   */
   private async getRemotePluginReadme(
     pluginName: string
   ): Promise<{ success: boolean; content?: string; error?: string }> {
@@ -666,7 +851,11 @@ export class PluginsAPI {
     }
   }
 
-  // 获取插件存储的数据库数据
+  /**
+   * 获取指定插件命名空间中的数据库数据。
+   * @param pluginName 插件名或宿主标识 ZTOOLS
+   * @returns 数据查询结果
+   */
   private getPluginDbData(pluginName: string): {
     success: boolean
     data?: any

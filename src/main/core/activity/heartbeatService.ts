@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import lmdbInstance from '../lmdb/lmdbInstance'
 import pluginDeviceAPI from '../../api/plugin/device'
 import { httpRequest } from '../../utils/httpRequest'
@@ -52,9 +53,17 @@ class ActivityHeartbeatService {
     }
   }
 
+  /**
+   * 向官方服务端提交当前设备的活跃心跳和 ZTools 版本。
+   * @param config 当前同步账号配置；未登录时为 null
+   * @returns 服务端返回的 HTTP 状态码
+   */
   private async postHeartbeat(config: StoredSyncConfig | null): Promise<number> {
     const deviceId = pluginDeviceAPI.getDeviceIdPublic()
     const token = config?.serverUrl === DEFAULT_SYNC_SERVER_URL ? config.token : ''
+
+    // 使用 Electron 实际应用版本，确保开发和打包环境的上报来源一致。
+    const ztoolsVersion = app.getVersion()
     const response = await httpRequest(
       `${syncServerUrlToHttp(DEFAULT_SYNC_SERVER_URL)}/api/activity/heartbeat`,
       {
@@ -65,7 +74,8 @@ class ActivityHeartbeatService {
         },
         body: JSON.stringify({
           deviceId,
-          uid: token ? config?.username || '' : ''
+          uid: token ? config?.username || '' : '',
+          ztoolsVersion
         }),
         validateStatus: (status) => (status >= 200 && status < 300) || status === 401
       }

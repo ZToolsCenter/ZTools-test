@@ -40,12 +40,12 @@ _uTools 的开源实现 | 支持 macOS 和 Windows_
 <table>
   <tr>
     <td width="240" align="center">
-      <a href="https://ztest.ai">
+      <a href="https://ztest.ai/?from=ztools">
         <img src="./.github/assets/sponsors/ztest.png" alt="真测 Ztest" width="220">
       </a>
     </td>
     <td>
-      感谢 <a href="https://ztest.ai">真测 Ztest</a> 赞助了本项目！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。
+      感谢 <a href="https://ztest.ai/?from=ztools">真测 Ztest</a> 赞助了本项目！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。
     </td>
   </tr>
 </table>
@@ -263,14 +263,6 @@ pnpm build:unpack       # 打包但不生成安装包（调试用）
 ## 📄 许可证
 
 本项目采用 [MIT License](./LICENSE) 许可证。
-
-## 💖 赞助支持
-
-如果 ZTools 对你有帮助，欢迎通过爱发电赞助支持项目的持续开发：
-
-<a href="https://afdian.com/a/ZTools">
-  <img src="https://img.shields.io/badge/爱发电-赞助支持-946ce6?style=for-the-badge" alt="爱发电">
-</a>
 
 ## 💝 致谢
 

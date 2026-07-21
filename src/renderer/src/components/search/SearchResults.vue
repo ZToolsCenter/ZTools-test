@@ -14,7 +14,7 @@
       :pasted-text="pastedText"
       :best-search-results="bestSearchResults"
       :best-matches="bestMatches"
-      :recommendations="recommendations"
+      :recommendations="recommendationItems"
       :main-push-groups="mainPushGroups"
       :display-apps="displayApps"
       :pinned-apps="pinnedApps"
@@ -44,7 +44,7 @@
         :selected-index="listModeSelectedIndex"
         :search-query="searchQuery"
         @select="handleSelectApp"
-        @contextmenu="(app) => handleAppContextMenu(app, true, false)"
+        @contextmenu="(app) => handleAppContextMenu(app, 'search')"
       />
     </div>
   </div>
@@ -89,6 +89,8 @@ interface Props {
   pastedText?: string | null
 }
 
+type ContextMenuSource = 'history' | 'pinned' | 'search' | 'recommendation'
+
 const props = defineProps<Props>()
 
 const windowStore = useWindowStore()
@@ -109,6 +111,11 @@ const {
   pinCommand,
   unpinCommand,
   isPinned,
+  getRecommendationPinIndex,
+  isRecommendationPinned,
+  pinRecommendation,
+  unpinRecommendation,
+  moveRecommendationToFront,
   getPinnedCommands,
   updatePinnedOrder,
   saveSearchPreference,
@@ -119,6 +126,14 @@ const {
 // 使用搜索结果 composable
 const { bestSearchResults, bestMatches, recommendations, allListModeResults } =
   useSearchResults(props)
+
+// 为推荐项附加仅用于渲染的置顶状态，避免把 UI 字段写入固定列表数据。
+const recommendationItems = computed(() =>
+  recommendations.value.map((item) => ({
+    ...item,
+    isPinnedInSearch: isRecommendationPinned(item)
+  }))
+)
 
 // 使用 mainPush 结果 composable
 const { mainPushGroups, handleMainPushSelect } = useMainPushResults(props)
@@ -228,7 +243,7 @@ const navigationGrid = computed(() => {
     hasSearchContent: hasSearchContent.value,
     bestSearchResults: bestSearchResults.value,
     bestMatches: bestMatches.value,
-    recommendations: recommendations.value,
+    recommendations: recommendationItems.value,
     mainPushGroups: mainPushGroups.value,
     windowMatchedActions: windowMatchedActions.value,
     displayApps: displayApps.value,
@@ -393,16 +408,17 @@ watch(
   }
 )
 
-// 处理应用右键菜单
-async function handleAppContextMenu(
-  app: any,
-  fromSearch = false,
-  fromPinned = false
-): Promise<void> {
+/**
+ * 根据结果来源构建应用右键菜单。
+ * @param app 触发菜单的指令
+ * @param source 结果所在区域
+ * @returns 菜单展示完成后结束的 Promise
+ */
+async function handleAppContextMenu(app: any, source: ContextMenuSource = 'search'): Promise<void> {
   const menuItems: any[] = []
 
   // 只在历史记录中显示"从使用记录删除"
-  if (!fromSearch && !fromPinned) {
+  if (source === 'history') {
     const historyMatchName =
       app.type === 'plugin'
         ? app.pluginName || app.name
@@ -438,42 +454,87 @@ async function handleAppContextMenu(
     })
   }
 
-  // 根据是否已固定显示不同选项
-  const pinMatchName =
-    app.type === 'plugin'
-      ? app.pluginName || app.name
-      : app.type === 'direct' && app.subType === 'app'
-        ? app.persistedName || app.name
-        : app.name
-  if (isPinned(app.path, app.featureCode, pinMatchName)) {
-    menuItems.push({
-      id: `unpin-app:${JSON.stringify({
-        path: app.path,
-        featureCode: app.featureCode,
-        name: pinMatchName
-      })}`,
-      label: '从搜索框取消固定'
-    })
+  if (source === 'recommendation') {
+    // 推荐区使用独立置顶序列，与主搜索框固定列表完全隔离。
+    const recommendationIndex = getRecommendationPinIndex(app)
+    if (recommendationIndex >= 0) {
+      menuItems.push({
+        id: `unpin-recommendation:${JSON.stringify({
+          path: app.path,
+          featureCode: app.featureCode,
+          name: app.name,
+          pluginName: app.pluginName,
+          type: app.type
+        })}`,
+        label: '取消置顶'
+      })
+      menuItems.push({
+        id: `move-recommendation-to-front:${JSON.stringify({
+          path: app.path,
+          featureCode: app.featureCode,
+          name: app.name,
+          pluginName: app.pluginName,
+          type: app.type
+        })}`,
+        label: '排到最前',
+        enabled: recommendationIndex > 0
+      })
+    } else {
+      menuItems.push({
+        id: `pin-recommendation:${JSON.stringify({
+          path: app.path,
+          featureCode: app.featureCode,
+          name: app.name,
+          pluginName: app.pluginName,
+          type: app.type
+        })}`,
+        label: '置顶'
+      })
+    }
+
+    // 匹配推荐使用专属菜单，不追加超级面板、插件设置和快捷键等通用操作。
+    await window.ztools.showContextMenu(menuItems)
+    return
   } else {
-    menuItems.push({
-      id: `pin-app:${JSON.stringify({
-        name:
-          app.type === 'direct' && app.subType === 'app' ? app.persistedName || app.name : app.name,
-        path: app.path,
-        icon: app.icon,
-        pinyin: app.pinyin,
-        pinyinAbbr: app.pinyinAbbr,
-        type: app.type,
-        featureCode: app.featureCode,
-        pluginName: app.pluginName,
-        pluginExplain: app.pluginExplain,
-        subType: app.subType,
-        cmdType: app.cmdType,
-        originalName: app.originalName,
-        persistedName: app.persistedName
-      })}`,
-      label: '固定到搜索框'
-    })
+    // 其他区域继续使用原有的主搜索框固定逻辑。
+    const fixedMatchName =
+      app.type === 'plugin'
+        ? app.pluginName || app.name
+        : app.type === 'direct' && app.subType === 'app'
+          ? app.persistedName || app.name
+          : app.name
+    if (isPinned(app.path, app.featureCode, fixedMatchName)) {
+      menuItems.push({
+        id: `unpin-app:${JSON.stringify({
+          path: app.path,
+          featureCode: app.featureCode,
+          name: fixedMatchName
+        })}`,
+        label: '从搜索框取消固定'
+      })
+    } else {
+      menuItems.push({
+        id: `pin-app:${JSON.stringify({
+          name:
+            app.type === 'direct' && app.subType === 'app'
+              ? app.persistedName || app.name
+              : app.name,
+          path: app.path,
+          icon: app.icon,
+          pinyin: app.pinyin,
+          pinyinAbbr: app.pinyinAbbr,
+          type: app.type,
+          featureCode: app.featureCode,
+          pluginName: app.pluginName,
+          pluginExplain: app.pluginExplain,
+          subType: app.subType,
+          cmdType: app.cmdType,
+          originalName: app.originalName,
+          persistedName: app.persistedName
+        })}`,
+        label: '固定到搜索框'
+      })
+    }
   }
 
   // 超级面板固定/取消固定
@@ -750,7 +811,11 @@ async function handleKeydown(event: KeyboardEvent): Promise<void> {
   })
 }
 
-// 处理上下文菜单命令
+/**
+ * 执行主进程右键菜单回传的命令。
+ * @param command 菜单命令及其序列化参数
+ * @returns 命令处理完成后结束的 Promise
+ */
 async function handleContextMenuCommand(command: string): Promise<void> {
   if (command.startsWith('remove-from-history:')) {
     const jsonStr = command.replace('remove-from-history:', '')
@@ -763,6 +828,39 @@ async function handleContextMenuCommand(command: string): Promise<void> {
       })
     } catch (error) {
       console.error('从历史记录删除失败:', error)
+    }
+  } else if (command.startsWith('pin-recommendation:')) {
+    const jsonStr = command.replace('pin-recommendation:', '')
+    try {
+      await pinRecommendation(JSON.parse(jsonStr))
+      nextTick(() => {
+        emit('height-changed')
+        emit('focus-input')
+      })
+    } catch (error) {
+      console.error('置顶匹配推荐失败:', error)
+    }
+  } else if (command.startsWith('unpin-recommendation:')) {
+    const jsonStr = command.replace('unpin-recommendation:', '')
+    try {
+      await unpinRecommendation(JSON.parse(jsonStr))
+      nextTick(() => {
+        emit('height-changed')
+        emit('focus-input')
+      })
+    } catch (error) {
+      console.error('取消匹配推荐置顶失败:', error)
+    }
+  } else if (command.startsWith('move-recommendation-to-front:')) {
+    const jsonStr = command.replace('move-recommendation-to-front:', '')
+    try {
+      await moveRecommendationToFront(JSON.parse(jsonStr))
+      nextTick(() => {
+        emit('height-changed')
+        emit('focus-input')
+      })
+    } catch (error) {
+      console.error('调整匹配推荐顺序失败:', error)
     }
   } else if (command.startsWith('pin-app:')) {
     const appJson = command.replace('pin-app:', '')

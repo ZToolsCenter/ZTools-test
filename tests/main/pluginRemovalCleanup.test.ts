@@ -309,6 +309,23 @@ describe('plugin removal cleanup', () => {
     expect(send).toHaveBeenCalledWith('plugins-changed')
   })
 
+  it('persists disabled plugins by stable plugin name', async () => {
+    mockDbGet.mockImplementation((key: string) => {
+      if (key === 'plugins') return [{ name: 'demo', path: '/plugins/demo-1.0.0.asar' }]
+      return []
+    })
+    const api = new PluginsAPI()
+    ;(api as any).mainWindow = { webContents: { send: vi.fn() } }
+    ;(api as any).pluginManager = { killPlugin: vi.fn() }
+    ;(api as any).disabledPluginPathSet = new Set<string>()
+
+    const result = await api.setPluginDisabled('/plugins/demo-1.0.0.asar', true)
+
+    expect(result).toEqual({ success: true })
+    expect(mockDbPut).toHaveBeenCalledWith('disabled-plugins', ['demo'])
+    expect(api.getDisabledPlugins()).toEqual(['/plugins/demo-1.0.0.asar'])
+  })
+
   it('cleans provider settings for the uninstalled plugin', async () => {
     mockDbGet.mockImplementation((key: string) => {
       if (key === 'plugins') {

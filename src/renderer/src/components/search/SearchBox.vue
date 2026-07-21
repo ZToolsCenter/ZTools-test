@@ -148,13 +148,20 @@
         <span class="tab-target-key">Tab</span>
       </div>
       <!-- 更新提示 -->
-      <div
-        v-if="windowStore.availableUpdateInfo.hasUpdate && !windowStore.currentPlugin"
-        class="update-notification"
-        @click="handleUpdateClick"
-      >
-        <span class="update-text">发现新版本，点击更新</span>
-        <UpdateIcon />
+      <div v-if="windowStore.shouldShowUpdateNotification" class="update-notification">
+        <button class="update-action" type="button" @click="handleUpdateClick">
+          <span class="update-text">发现新版本，点击更新</span>
+          <UpdateIcon />
+        </button>
+        <button
+          class="update-dismiss"
+          type="button"
+          title="关闭本次提示"
+          aria-label="关闭更新提示"
+          @click="handleDismissUpdateNotification"
+        >
+          <span aria-hidden="true">&times;</span>
+        </button>
       </div>
       <!-- 头像按钮（无更新或插件模式时显示） -->
       <div
@@ -1017,6 +1024,14 @@ async function handleUpdateClick(): Promise<void> {
   }
 }
 
+/**
+ * 关闭当前版本的更新提示，关闭状态仅在本次应用运行期间有效。
+ * @returns 无返回值
+ */
+function handleDismissUpdateNotification(): void {
+  windowStore.dismissUpdateNotification()
+}
+
 onUnmounted(() => {
   resizeObserver?.disconnect()
   cleanupDrag()
@@ -1436,22 +1451,57 @@ defineExpose({
 .update-notification {
   display: flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 6px 12px;
+  overflow: hidden;
   border-radius: 8px;
   background: rgba(16, 185, 129, 0.1);
-  transition: all 0.2s;
+  transition: background 0.2s;
   -webkit-app-region: no-drag;
 }
 
 .update-notification:hover {
   background: rgba(16, 185, 129, 0.2);
-  transform: scale(1.02);
 }
 
-.update-notification:active {
-  transform: scale(0.98);
+.update-action,
+.update-dismiss {
+  border: none;
+  background: transparent;
+  color: #10b981;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.update-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+}
+
+.update-action:active {
+  opacity: 0.7;
+}
+
+.update-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 7px;
+  border-radius: 6px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.update-dismiss:hover {
+  background: rgba(16, 185, 129, 0.16);
+}
+
+.update-action:focus-visible,
+.update-dismiss:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: -2px;
 }
 
 .update-text {

@@ -168,6 +168,11 @@ const homeRoutes: MenuRouterItemType[] = [
     }
   },
   {
+    path: '/account',
+    name: 'Account',
+    component: () => import('@/views/AccountSetting/AccountSetting.vue')
+  },
+  {
     path: '/pluginInstaller',
     name: 'PluginInstaller',
     component: () => import('@/views/PluginInstaller/PluginInstaller.vue')

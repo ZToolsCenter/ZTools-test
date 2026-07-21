@@ -1,5 +1,5 @@
 import { app, dialog, shell } from 'electron'
-import type { WindowsUpdater } from '../windowsUpdater'
+import type { ElectronUpdaterService } from '../electronUpdater'
 import {
   getWindowsInstallCompatibility,
   WINDOWS_RELEASE_URL,
@@ -16,13 +16,18 @@ import type {
 } from './types'
 
 class WindowsPlatformUpdater implements PlatformUpdaterService {
-  private updater: WindowsUpdater | null = null
+  private updater: ElectronUpdaterService | null = null
   private compatibility: WindowsInstallCompatibility | null = null
   private migrationPromptShown = false
 
   constructor(private readonly callbacks: PlatformUpdaterCallbacks) {}
 
+  /**
+   * 校验 Windows 完整安装状态，并为兼容安装初始化共享标准更新器。
+   * @returns 初始化完成后结束的 Promise。
+   */
   public async initialize(): Promise<void> {
+    // 先完成 NSIS 安装兼容校验，避免 portable 或 legacy 安装进入标准更新流程。
     this.compatibility = await getWindowsInstallCompatibility()
     if (this.compatibility.migrationRequired) {
       await this.showMigrationPrompt()
@@ -30,8 +35,9 @@ class WindowsPlatformUpdater implements PlatformUpdaterService {
     }
     if (!this.compatibility.compatible) return
 
-    const { WindowsUpdater } = await import('../windowsUpdater')
-    this.updater = new WindowsUpdater(this.callbacks, this.compatibility)
+    // 兼容性通过后再注册 electron-updater 事件。
+    const { ElectronUpdaterService } = await import('../electronUpdater')
+    this.updater = new ElectronUpdaterService(this.callbacks)
   }
 
   private async showMigrationPrompt(): Promise<void> {

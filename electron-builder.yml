@@ -4,6 +4,7 @@ publish:
   provider: github
   owner: ZToolsCenter
   repo: ZTools-test
+electronUpdaterCompatibility: '>=2.16'
 directories:
   buildResources: build
 files:
@@ -53,10 +54,8 @@ nsis:
   perMachine: false
   deleteAppDataOnUninstall: false
 mac:
-  # macOS ad-hoc signing is handled in build/afterPack.js after all bundle
-  # mutations have completed. For public distribution, replace this flow with
-  # Developer ID signing and notarization.
-  identity: null
+  # The Developer ID identity is selected by CSC_NAME in CI. Leaving this
+  # unset keeps local builds compatible with machines that have no certificate.
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -64,7 +63,7 @@ mac:
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+  notarize: true
   target:
     - dmg
     - zip

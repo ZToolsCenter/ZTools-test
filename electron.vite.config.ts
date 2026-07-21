@@ -1,5 +1,6 @@
 import vue from '@vitejs/plugin-vue'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import svgLoader from 'vite-svg-loader'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
@@ -50,7 +51,7 @@ export default defineConfig({
         '@shared': resolve(__dirname, 'src/shared')
       }
     },
-    plugins: [vue()],
+    plugins: [vue(), svgLoader()],
     server: {
       port: 5174,
       host: '127.0.0.1',

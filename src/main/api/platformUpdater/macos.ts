@@ -1,11 +1,10 @@
-import { app } from 'electron'
-import { promises as fs } from 'fs'
-import path from 'path'
-import { spawn } from 'child_process'
-import AdmZip from 'adm-zip'
-import yaml from 'yaml'
-import { getTempPath } from '../../core/appData/appDataPaths'
-import { downloadFile } from '../../utils/download.js'
+import { app, dialog, shell } from 'electron'
+import type { ElectronUpdaterService } from '../electronUpdater'
+import {
+  getMacInstallCompatibility,
+  MAC_RELEASE_URL,
+  type MacInstallCompatibility
+} from '../macInstallCompatibility'
 import type {
   CreatePlatformUpdater,
   PlatformDownloadStatus,
@@ -15,258 +14,130 @@ import type {
   PlatformUpdaterCallbacks,
   PlatformUpdaterService
 } from './types'
-import { compareVersions } from './versionComparison'
-
-interface LegacyUpdatePaths {
-  updaterPath: string
-  asarSrc: string
-  asarDst: string
-  unpackedSrc: string
-  unpackedDst: string
-  appPath: string
-}
 
 class MacPlatformUpdater implements PlatformUpdaterService {
-  private readonly latestYmlUrl =
-    'https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/latest.yml'
-  private downloadedUpdateInfo: PlatformUpdateInfo | null = null
-  private downloadedUpdatePath: string | null = null
-  private checkPromise: Promise<PlatformUpdateResult> | null = null
+  private updater: ElectronUpdaterService | null = null
+  private compatibility: MacInstallCompatibility | null = null
+  private migrationPromptShown = false
 
+  /**
+   * 创建 macOS 标准更新适配器。
+   * @param callbacks 更新生命周期回调。
+   * @returns 创建的 macOS 更新适配器实例。
+   */
   constructor(private readonly callbacks: PlatformUpdaterCallbacks) {}
 
+  /**
+   * 校验完整安装状态，并为兼容安装初始化 electron-updater。
+   * @returns 初始化完成后结束的 Promise。
+   */
   public async initialize(): Promise<void> {
-    return
+    // legacy 安装不能直接进入 Squirrel.Mac，否则签名和运行时可能不一致。
+    this.compatibility = await getMacInstallCompatibility()
+    if (this.compatibility.migrationRequired) {
+      await this.showMigrationPrompt()
+      return
+    }
+    if (!this.compatibility.compatible) return
+
+    // 兼容性通过后再加载标准更新器，避免 legacy 安装提前注册更新事件。
+    const { ElectronUpdaterService } = await import('../electronUpdater')
+    this.updater = new ElectronUpdaterService(this.callbacks)
   }
 
+  /**
+   * 向 legacy 或磁盘映像安装展示一次完整安装迁移提示。
+   * @returns 提示处理完成后结束的 Promise。
+   */
+  private async showMigrationPrompt(): Promise<void> {
+    if (this.migrationPromptShown) return
+    this.migrationPromptShown = true
+
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: '需要更新 ZTools',
+      message: '请安装一次最新完整版本',
+      detail:
+        '当前版本使用的是较早的 macOS 更新方式，无法直接切换到签名整包更新。安装最新 DMG 后即可继续正常接收更新，您的数据、设置和插件都会保留。',
+      buttons: ['下载最新版本', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    })
+
+    if (result.response === 0) await shell.openExternal(MAC_RELEASE_URL)
+  }
+
+  /**
+   * 检查 macOS 标准更新，legacy 安装则返回迁移状态。
+   * @param downloadWhenAvailable 发现更新后是否立即下载。
+   * @returns 更新检查或迁移结果。
+   */
   public async checkForUpdates(downloadWhenAvailable: boolean): Promise<PlatformUpdateResult> {
-    if (this.checkPromise) return this.checkPromise
+    if (this.updater) return this.updater.checkForUpdates(downloadWhenAvailable)
 
-    this.checkPromise = this.doCheckForUpdates(downloadWhenAvailable).finally(() => {
-      this.checkPromise = null
-    })
-    return this.checkPromise
-  }
-
-  private async doCheckForUpdates(downloadWhenAvailable: boolean): Promise<PlatformUpdateResult> {
-    try {
-      const tempDir = path.join(getTempPath(), 'ztools-update-check')
-      await fs.mkdir(tempDir, { recursive: true })
-      const tempFilePath = path.join(tempDir, `latest-${Date.now()}.yml`)
-
-      try {
-        console.log('[Updater] 下载 latest.yml:', this.latestYmlUrl)
-        await downloadFile(this.latestYmlUrl, tempFilePath)
-        const updateMetadata = yaml.parse(await fs.readFile(tempFilePath, 'utf-8'))
-
-        if (!updateMetadata.version) throw new Error('latest.yml 格式错误：缺少 version 字段')
-
-        const latestVersion = updateMetadata.version
-        const currentVersion = app.getVersion()
-        if (compareVersions(latestVersion, currentVersion) <= 0) {
-          return {
-            success: true,
-            status: 'not-available',
-            hasUpdate: false,
-            latestVersion,
-            currentVersion
-          }
-        }
-
-        const releaseNotes = updateMetadata.releaseNotes || updateMetadata.changelog || ''
-        const updateInfo: PlatformUpdateInfo = {
-          version: latestVersion,
-          changelog: releaseNotes,
-          releaseNotes,
-          downloadUrl: this.buildUpdateDownloadUrl(latestVersion)
-        }
-        this.downloadedUpdateInfo = updateInfo
-
-        if (downloadWhenAvailable) {
-          const downloadResult = await this.downloadUpdate(updateInfo, true)
-          if (!downloadResult.success) {
-            return {
-              success: false,
-              status: 'error',
-              hasUpdate: true,
-              currentVersion,
-              latestVersion,
-              updateInfo,
-              error: downloadResult.error
-            }
-          }
-        }
-
-        return {
-          success: true,
-          status: downloadWhenAvailable ? 'downloaded' : 'available',
-          hasUpdate: true,
-          currentVersion,
-          latestVersion,
-          updateInfo
-        }
-      } finally {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch((error) => {
-          console.error('[Updater] 清理更新检查临时目录失败:', error)
-        })
+    if (this.compatibility?.migrationRequired) {
+      return {
+        success: true,
+        status: 'migration-required',
+        hasUpdate: false,
+        currentVersion: app.getVersion(),
+        migrationRequired: true,
+        migrationReasons: this.compatibility.reasons,
+        releaseUrl: MAC_RELEASE_URL
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '检查更新失败'
-      console.error('[Updater] 检查更新失败:', error)
-      return { success: false, status: 'error', hasUpdate: false, error: message }
     }
+
+    return { success: true, status: 'not-available', hasUpdate: false }
   }
 
-  private buildUpdateDownloadUrl(version: string): string {
-    const fileName = `update-darwin-${process.arch}-${version}.zip`
-    return `https://github.com/ZToolsCenter/ZTools-test/releases/latest/download/${fileName}`
-  }
-
-  private async downloadUpdate(
-    updateInfo: PlatformUpdateInfo,
-    showWindow: boolean
-  ): Promise<PlatformUpdateActionResult> {
-    if (this.downloadedUpdatePath) return { success: true }
-    if (!updateInfo.downloadUrl) return { success: false, error: '更新包地址不存在' }
-
-    this.callbacks.onDownloadStart({ version: updateInfo.version })
-    try {
-      const tempDir = path.join(getTempPath(), 'ztools-update-pkg')
-      await fs.mkdir(tempDir, { recursive: true })
-      const tempZipPath = path.join(tempDir, `update-${Date.now()}.zip`)
-      const extractPath = path.join(tempDir, `extracted-${Date.now()}`)
-      let lastReceivedBytes = 0
-      let lastProgressAt = Date.now()
-
-      await downloadFile(updateInfo.downloadUrl, tempZipPath, {
-        onProgress: (progress) => {
-          const now = Date.now()
-          const delta = Math.max(0, progress.receivedBytes - lastReceivedBytes)
-          const elapsedSeconds = Math.max(0.001, (now - lastProgressAt) / 1000)
-          this.callbacks.onDownloadProgress({
-            bytesPerSecond: delta / elapsedSeconds,
-            delta,
-            percent: progress.percent ?? 0,
-            total: progress.totalBytes ?? 0,
-            transferred: progress.receivedBytes
-          })
-          lastReceivedBytes = progress.receivedBytes
-          lastProgressAt = now
-        }
-      })
-      await fs.mkdir(extractPath, { recursive: true })
-
-      const zip = new AdmZip(tempZipPath)
-      await new Promise<void>((resolve, reject) => {
-        zip.extractAllToAsync(extractPath, true, false, (error?: Error) => {
-          if (error) reject(error)
-          else resolve()
-        })
-      })
-
-      const appAsarTmp = path.join(extractPath, 'app.asar.tmp')
-      const appAsar = path.join(extractPath, 'app.asar')
-      try {
-        await fs.access(appAsarTmp)
-        await fs.rename(appAsarTmp, appAsar)
-      } catch {
-        console.log('[Updater] 未找到 app.asar.tmp，可能直接是 app.asar')
-      }
-
-      await fs.unlink(tempZipPath).catch((error) => {
-        console.error('[Updater] 删除更新 ZIP 失败:', error)
-      })
-
-      this.downloadedUpdateInfo = updateInfo
-      this.downloadedUpdatePath = extractPath
-      this.callbacks.onDownloaded(updateInfo, showWindow)
-      return { success: true }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '下载更新失败'
-      this.callbacks.onDownloadFailed(message)
-      return { success: false, error: message }
-    }
-  }
-
-  private async getUpdatePaths(extractPath: string): Promise<LegacyUpdatePaths> {
-    const appPath = process.execPath
-    const contentsDir = path.dirname(path.dirname(appPath))
-    const resourcesDir = path.join(contentsDir, 'Resources')
-    const safeArch = process.arch === 'arm64' ? 'arm64' : 'amd64'
-    const updaterPath = app.isPackaged
-      ? path.join(path.dirname(appPath), 'ztools-updater')
-      : path.join(app.getAppPath(), `updater/mac-${safeArch}/ztools-updater`)
-
-    return {
-      updaterPath,
-      asarSrc: path.join(extractPath, 'app.asar'),
-      asarDst: path.join(resourcesDir, 'app.asar'),
-      unpackedSrc: path.join(extractPath, 'app.asar.unpacked'),
-      unpackedDst: path.join(resourcesDir, 'app.asar.unpacked'),
-      appPath
-    }
-  }
-
-  private async launchUpdater(paths: LegacyUpdatePaths): Promise<void> {
-    await fs.access(paths.updaterPath).catch(() => {
-      throw new Error(`找不到升级程序: ${paths.updaterPath}`)
-    })
-
-    const args = [
-      '--asar-src',
-      paths.asarSrc,
-      '--asar-dst',
-      paths.asarDst,
-      '--app',
-      paths.appPath,
-      '--unpacked-src',
-      paths.unpackedSrc,
-      '--unpacked-dst',
-      paths.unpackedDst
-    ]
-    const subprocess = spawn(paths.updaterPath, args, { detached: true, stdio: 'ignore' })
-    subprocess.unref()
-    this.callbacks.onBeforeInstall()
-    app.exit(0)
-  }
-
+  /**
+   * 下载并安装 macOS 完整更新，legacy 安装则打开完整安装页面。
+   * @param updateInfo 当前可用更新信息。
+   * @returns 更新启动结果。
+   */
   public async startUpdate(updateInfo?: PlatformUpdateInfo): Promise<PlatformUpdateActionResult> {
-    if (!updateInfo) return { success: false, error: '没有可用的更新' }
-    const downloadResult = await this.downloadUpdate(updateInfo, false)
-    if (!downloadResult.success || !this.downloadedUpdatePath) return downloadResult
+    if (this.updater) return this.updater.downloadAndInstall()
 
-    try {
-      await this.launchUpdater(await this.getUpdatePaths(this.downloadedUpdatePath))
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '安装更新失败' }
-    }
+    await shell.openExternal(updateInfo?.releaseUrl || MAC_RELEASE_URL)
+    return { success: true, migrationRequired: true }
   }
 
-  public async installDownloadedUpdate(): Promise<PlatformUpdateActionResult> {
-    if (!this.downloadedUpdatePath) return { success: false, error: '没有已下载的更新' }
-    try {
-      await this.launchUpdater(await this.getUpdatePaths(this.downloadedUpdatePath))
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '安装更新失败' }
-    }
+  /**
+   * 安装已经下载完成的 macOS 完整更新。
+   * @returns 安装启动结果。
+   */
+  public installDownloadedUpdate(): PlatformUpdateActionResult {
+    if (this.updater) return this.updater.installDownloadedUpdate()
+    return { success: false, error: '当前 macOS 安装需要完整版本迁移' }
   }
 
+  /**
+   * 获取 macOS 更新下载或迁移状态。
+   * @returns 当前下载状态。
+   */
   public getDownloadStatus(): PlatformDownloadStatus {
+    if (this.updater) return this.updater.getDownloadStatus()
     return {
-      hasDownloaded: Boolean(this.downloadedUpdatePath),
-      version: this.downloadedUpdateInfo?.version,
-      changelog: this.downloadedUpdateInfo?.changelog,
-      status: this.downloadedUpdatePath ? 'downloaded' : 'idle'
+      hasDownloaded: false,
+      status: this.compatibility?.migrationRequired ? 'migration-required' : 'idle'
     }
   }
 
+  /**
+   * 清理 macOS 更新适配器持有的资源。
+   * @returns 无返回值。
+   */
   public cleanup(): void {
     return
   }
 }
 
+/**
+ * 创建 macOS 平台更新适配器。
+ * @param callbacks 更新生命周期回调。
+ * @returns macOS 平台更新服务。
+ */
 const createMacUpdater: CreatePlatformUpdater = (callbacks) => new MacPlatformUpdater(callbacks)
 
 export default createMacUpdater

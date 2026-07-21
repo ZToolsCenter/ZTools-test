@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import defaultAvatar from '../assets/image/default.png'
 
 interface WindowInfo {
@@ -102,7 +102,7 @@ export const useWindowStore = defineStore('window', () => {
   const searchMode = ref<SearchMode>('aggregate')
 
   const theme = ref('system') // system, light, dark
-  const primaryColor = ref('blue') // blue, purple, green, orange, red, pink, custom
+  const primaryColor = ref('green') // blue, purple, green, orange, red, pink, custom
   const customColor = ref('#db2777') // 自定义颜色
 
   // 亚克力材质背景色透明度（0-100）
@@ -111,6 +111,17 @@ export const useWindowStore = defineStore('window', () => {
 
   // 更新状态
   const availableUpdateInfo = ref<AvailableUpdateInfo>({ hasUpdate: false })
+  const autoCheckUpdateEnabled = ref(true)
+  const dismissedUpdateVersion = ref<string | null>(null)
+  const shouldShowUpdateNotification = computed(() => {
+    const availableVersion = availableUpdateInfo.value.version ?? ''
+    return (
+      availableUpdateInfo.value.hasUpdate &&
+      autoCheckUpdateEnabled.value &&
+      !currentPlugin.value &&
+      availableVersion !== dismissedUpdateVersion.value
+    )
+  })
 
   // 更新窗口信息
   function updateWindowInfo(windowInfo: WindowInfo | null): void {
@@ -481,8 +492,34 @@ export const useWindowStore = defineStore('window', () => {
     availableUpdateInfo.value = info
   }
 
-  // 恢复主进程中已检测到的更新状态
+  /**
+   * 更新自动检查开关的运行时状态，并在重新开启时允许更新提示再次出现。
+   * @param enabled 是否启用自动检查更新
+   * @returns 无返回值
+   */
+  function updateAutoCheckUpdateEnabled(enabled: boolean): void {
+    autoCheckUpdateEnabled.value = enabled
+
+    // 用户主动重新开启自动检查时，清除本次运行的旧关闭记录。
+    if (enabled) dismissedUpdateVersion.value = null
+  }
+
+  /**
+   * 关闭当前版本的主窗口更新提示，关闭状态仅保留到本次应用退出。
+   * @returns 无返回值
+   */
+  function dismissUpdateNotification(): void {
+    dismissedUpdateVersion.value = availableUpdateInfo.value.version ?? ''
+  }
+
+  /**
+   * 在自动检查开启时恢复主进程中已检测到的更新状态。
+   * @returns 状态检查完成后结束的 Promise
+   */
   async function checkUpdateStatus(): Promise<void> {
+    // 自动检查关闭时不恢复缓存提示，手动检查更新功能仍保持可用。
+    if (!autoCheckUpdateEnabled.value) return
+
     try {
       const status = await window.ztools.updater.getDownloadStatus()
       if (status.hasUpdate) {
@@ -502,7 +539,10 @@ export const useWindowStore = defineStore('window', () => {
     aiRequestStatus.value = status
   }
 
-  // 从数据库加载设置
+  /**
+   * 从数据库加载主窗口设置，并应用缺失字段的默认值。
+   * @returns 设置加载和应用完成后结束的 Promise
+   */
   async function loadSettings(): Promise<void> {
     try {
       const data = await window.ztools.dbGet('settings-general')
@@ -522,6 +562,9 @@ export const useWindowStore = defineStore('window', () => {
         if (data.autoClear) {
           autoClear.value = data.autoClear
         }
+        if (data.autoCheckUpdate !== undefined) {
+          autoCheckUpdateEnabled.value = data.autoCheckUpdate
+        }
         if (data.theme) {
           theme.value = data.theme
         }
@@ -531,8 +574,8 @@ export const useWindowStore = defineStore('window', () => {
         if (data.primaryColor) {
           updatePrimaryColor(data.primaryColor)
         } else {
-          // 默认蓝色
-          updatePrimaryColor('blue')
+          // 旧配置缺少主题色时使用当前产品默认的绿色。
+          updatePrimaryColor('green')
         }
         if (data.acrylicLightOpacity !== undefined) {
           acrylicLightOpacity.value = data.acrylicLightOpacity
@@ -577,8 +620,8 @@ export const useWindowStore = defineStore('window', () => {
           builtInEscShortcutEnabled.value = config.esc !== false
         }
       } else {
-        // 默认蓝色
-        updatePrimaryColor('blue')
+        // 首次启动没有通用设置时使用当前产品默认的绿色。
+        updatePrimaryColor('green')
       }
 
       // 监听系统主题变化，重新应用自定义颜色
@@ -611,6 +654,8 @@ export const useWindowStore = defineStore('window', () => {
     acrylicLightOpacity,
     acrylicDarkOpacity,
     availableUpdateInfo,
+    autoCheckUpdateEnabled,
+    shouldShowUpdateNotification,
     updateWindowInfo,
     updatePlaceholder,
     updateAvatar,
@@ -651,6 +696,8 @@ export const useWindowStore = defineStore('window', () => {
     getAutoClearTimeLimit,
     shouldClearSearch,
     setAvailableUpdateInfo,
+    updateAutoCheckUpdateEnabled,
+    dismissUpdateNotification,
     checkUpdateStatus,
     loadSettings
   }
